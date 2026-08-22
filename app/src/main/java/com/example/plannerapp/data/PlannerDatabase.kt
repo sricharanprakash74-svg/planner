@@ -6,13 +6,22 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [PlanEntity::class, TaskTemplateEntity::class, DailyCheckinEntity::class],
-    version = 1,
+    entities = [
+        UserEntity::class,
+        PlanEntity::class,
+        TaskTemplateEntity::class,
+        DailyCheckinEntity::class,
+        BadgeEntity::class,
+        PlanVoteEntity::class
+    ],
+    version = 2,
     exportSchema = false
 )
 abstract class PlannerDatabase : RoomDatabase() {
 
     abstract fun plannerDao(): PlannerDao
+    abstract fun userDao(): UserDao
+    abstract fun badgeDao(): BadgeDao
 
     companion object {
         @Volatile
@@ -24,7 +33,9 @@ abstract class PlannerDatabase : RoomDatabase() {
                     context.applicationContext,
                     PlannerDatabase::class.java,
                     "planner_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration(true)
+                .build()
                 INSTANCE = instance
                 instance
             }

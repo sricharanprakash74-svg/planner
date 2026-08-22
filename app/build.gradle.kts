@@ -2,7 +2,7 @@ plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
-  id("kotlin-kapt")
+  alias(libs.plugins.ksp)
 }
 
 android {
@@ -10,10 +10,11 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "com.example.plannerapp"
-        minSdk = 24
+        minSdk = 23
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+        multiDexEnabled = true
     }
 
     buildTypes {
@@ -23,6 +24,7 @@ android {
         }
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -40,14 +42,13 @@ android {
     }
 }
 
-kotlin {
-    jvmToolchain(17)
-}
 
 dependencies {
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)
   androidTestImplementation(composeBom)
+  
+  coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
   // Core Android dependencies
   implementation(libs.androidx.core.ktx)
@@ -62,6 +63,8 @@ dependencies {
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.compose.material3)
+  implementation("androidx.compose.material:material-icons-core")
+  implementation("androidx.compose.material:material-icons-extended")
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests
@@ -84,18 +87,22 @@ dependencies {
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
 
   // Room Database
-  val roomVersion = "2.6.1"
-  implementation("androidx.room:room-runtime:$roomVersion")
-  implementation("androidx.room:room-ktx:$roomVersion")
-  kapt("androidx.room:room-compiler:$roomVersion")
+  implementation(libs.androidx.room.runtime)
+  implementation(libs.androidx.room.ktx)
+  "ksp"(libs.androidx.room.compiler)
 
   // Glance Widget
-  val glanceVersion = "1.1.0"
-  implementation("androidx.glance:glance-appwidget:$glanceVersion")
-  implementation("androidx.glance:glance-material3:$glanceVersion")
+  implementation(libs.androidx.glance.appwidget)
+  implementation(libs.androidx.glance.material3)
 
   // Coroutines
-  val coroutinesVersion = "1.9.0"
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutinesVersion")
+  implementation(libs.kotlinx.coroutines.core)
+  implementation(libs.kotlinx.coroutines.android)
+
+  // WorkManager
+  implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+  // Retrofit & Gson
+  implementation("com.squareup.retrofit2:retrofit:2.11.0")
+  implementation("com.squareup.retrofit2:converter-gson:2.11.0")
 }
