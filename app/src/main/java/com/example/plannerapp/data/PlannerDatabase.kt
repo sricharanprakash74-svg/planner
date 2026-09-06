@@ -5,16 +5,27 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
+import com.example.plannerapp.credits.CreditDao
+import com.example.plannerapp.credits.CreditTransactionEntity
+import com.example.plannerapp.credits.StreakFreezeEntity
+import com.example.plannerapp.sharing.SharedPlanEntity
+import com.example.plannerapp.sharing.SharingDao
+
 @Database(
     entities = [
         UserEntity::class,
         PlanEntity::class,
         TaskTemplateEntity::class,
         DailyCheckinEntity::class,
+        PlanDayCompletionEntity::class,
         BadgeEntity::class,
-        PlanVoteEntity::class
+        PlanVoteEntity::class,
+        JoinedCommunityEntity::class,
+        CreditTransactionEntity::class,
+        StreakFreezeEntity::class,
+        SharedPlanEntity::class
     ],
-    version = 2,
+    version = 8,
     exportSchema = false
 )
 abstract class PlannerDatabase : RoomDatabase() {
@@ -22,6 +33,8 @@ abstract class PlannerDatabase : RoomDatabase() {
     abstract fun plannerDao(): PlannerDao
     abstract fun userDao(): UserDao
     abstract fun badgeDao(): BadgeDao
+    abstract fun creditDao(): CreditDao
+    abstract fun sharingDao(): SharingDao
 
     companion object {
         @Volatile

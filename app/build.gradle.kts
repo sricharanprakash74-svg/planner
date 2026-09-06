@@ -105,4 +105,18 @@ dependencies {
   // Retrofit & Gson
   implementation("com.squareup.retrofit2:retrofit:2.11.0")
   implementation("com.squareup.retrofit2:converter-gson:2.11.0")
+
+  // Supabase Auth & Compose Auth
+  val supabaseBom = platform("io.github.jan-tennert.supabase:bom:3.0.3")
+  implementation(supabaseBom)
+  implementation("io.github.jan-tennert.supabase:auth-kt")
+  implementation("io.github.jan-tennert.supabase:compose-auth")
+
+  // Ktor Client (Engine for Supabase)
+  implementation("io.ktor:ktor-client-android:3.0.3")
+
+  // Android Credential Manager & Google ID (for native One-Tap Sign In)
+  implementation("androidx.credentials:credentials:1.3.0")
+  implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+  implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 }
