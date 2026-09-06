@@ -25,22 +25,22 @@ import androidx.work.WorkManager
 import com.example.plannerapp.data.PlannerDatabase
 import com.example.plannerapp.data.PlannerRepository
 import com.example.plannerapp.sync.SyncWorker
-import com.example.plannerapp.ui.components.BottomNavBar
-import com.example.plannerapp.ui.components.BottomNavTab
-import com.example.plannerapp.ui.create.CreatePlanScreen
+import com.example.plannerapp.ui.navigation.AppScaffoldWrapper
+import com.example.plannerapp.ui.navigation.BottomNavTab
+import com.example.plannerapp.ui.create.CreatePlanScreenWrapper
 import com.example.plannerapp.ui.create.CreatePlanViewModel
 import com.example.plannerapp.ui.create.CreatePlanViewModelFactory
 import com.example.plannerapp.ui.explore.ExploreScreen
-import com.example.plannerapp.ui.home.HomeScreen
+import com.example.plannerapp.ui.home.HomeScreenWrapper
 import com.example.plannerapp.ui.home.HomeViewModel
 import com.example.plannerapp.ui.home.HomeViewModelFactory
-import com.example.plannerapp.ui.profile.ProfileScreen
+import com.example.plannerapp.ui.profile.ProfileScreenWrapper
 import com.example.plannerapp.ui.profile.ProfileViewModel
 import com.example.plannerapp.ui.profile.ProfileViewModelFactory
 import com.example.plannerapp.ui.profile.CreatorProfileScreen
 import com.example.plannerapp.ui.profile.CreatorProfileViewModel
 import com.example.plannerapp.ui.profile.CreatorProfileViewModelFactory
-import com.example.plannerapp.ui.profile.AnalyticsScreen
+import com.example.plannerapp.ui.analytics.AnalyticsScreenWrapper
 import com.example.plannerapp.ui.settings.*
 import com.example.plannerapp.ui.detail.PlanDetailScreen
 import com.example.plannerapp.ui.detail.PlanDetailViewModel
@@ -136,30 +136,23 @@ fun MainNavigation() {
         )
     }
 
-    Scaffold(
-        modifier = Modifier.safeDrawingPadding(),
-        bottomBar = {
-            // Only show bottom nav if we are on root tab pages
-            if (currentKey == Home || currentKey == Profile) {
-                BottomNavBar(
-                    currentTab = currentTab,
-                    onTabSelected = { tab ->
-                        currentTab = tab
-                        when (tab) {
-                            BottomNavTab.HOME -> {
-                                backStack.clear()
-                                backStack.add(Home)
-                            }
-                            BottomNavTab.PROFILE -> {
-                                backStack.clear()
-                                backStack.add(Home)
-                                backStack.add(Profile)
-                            }
-                        }
-                    }
-                )
+    AppScaffoldWrapper(
+        currentTab = currentTab,
+        onTabSelected = { tab ->
+            currentTab = tab
+            when (tab) {
+                BottomNavTab.HOME -> {
+                    backStack.clear()
+                    backStack.add(Home)
+                }
+                BottomNavTab.PROFILE -> {
+                    backStack.clear()
+                    backStack.add(Home)
+                    backStack.add(Profile)
+                }
             }
-        }
+        },
+        showBottomBar = currentKey == Home || currentKey == Profile
     ) { innerPadding ->
         NavDisplay(
             backStack = backStack,
@@ -174,7 +167,7 @@ fun MainNavigation() {
             modifier = Modifier.padding(innerPadding),
             entryProvider = entryProvider {
                 entry<Home> {
-                    HomeScreen(
+                    HomeScreenWrapper(
                         viewModel = homeViewModel,
                         onPlanClick = { planId -> backStack.add(PlanDetail(planId)) },
                         onPlanCreatedAndOpen = { planId -> backStack.add(PlanDetail(planId, autoOpenAddTask = true)) },
@@ -213,7 +206,7 @@ fun MainNavigation() {
                     )
                 }
                 entry<Profile> {
-                    ProfileScreen(
+                    ProfileScreenWrapper(
                         viewModel = profileViewModel,
                         onSettingsClick = { backStack.add(Settings) },
                         onAnalyticsClick = { backStack.add(Analytics) },
@@ -222,7 +215,7 @@ fun MainNavigation() {
                     )
                 }
                 entry<Analytics> {
-                    AnalyticsScreen(
+                    AnalyticsScreenWrapper(
                         viewModel = profileViewModel,
                         onBack = { backStack.removeLastOrNull() }
                     )
@@ -243,7 +236,7 @@ fun MainNavigation() {
                     )
                 }
                 entry<Settings> {
-                    SettingsScreen(
+                    SettingsScreenWrapper(
                         viewModel = settingsViewModel,
                         onBack = { backStack.removeLastOrNull() },
                         onEditProfileClick = { backStack.add(SettingsEditProfile) },
@@ -300,7 +293,7 @@ fun MainNavigation() {
                     )
                 }
                 entry<CreatePlan> {
-                    CreatePlanScreen(
+                    CreatePlanScreenWrapper(
                         viewModel = createPlanViewModel,
                         onClose = { backStack.removeLastOrNull() },
                         onPlanCreated = { triggerSync() }

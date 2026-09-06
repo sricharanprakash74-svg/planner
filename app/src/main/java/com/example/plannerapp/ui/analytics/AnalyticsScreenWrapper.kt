@@ -1,4 +1,4 @@
-package com.example.plannerapp.ui.profile
+package com.example.plannerapp.ui.analytics
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -14,11 +14,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.plannerapp.ui.profile.ProfileViewModel
 import com.example.plannerapp.ui.state.Resource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AnalyticsScreen(
+fun AnalyticsScreenWrapper(
     viewModel: ProfileViewModel,
     onBack: () -> Unit,
     modifier: Modifier = Modifier

@@ -1,4 +1,4 @@
-package com.example.plannerapp.ui.profile
+package com.example.plannerapp.ui.analytics
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
