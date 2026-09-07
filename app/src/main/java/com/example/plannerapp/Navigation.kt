@@ -52,7 +52,7 @@ import com.example.plannerapp.ui.social.CommunityDiscussionViewModel
 import com.example.plannerapp.ui.social.CommunityDiscussionViewModelFactory
 import com.example.plannerapp.ui.social.CommunityFeedViewModel
 import com.example.plannerapp.ui.social.CommunityFeedViewModelFactory
-import com.example.plannerapp.ui.auth.SignInScreen
+import com.example.plannerapp.ui.auth.SignInScreenWrapper
 import com.example.plannerapp.ui.auth.AuthViewModel
 import com.example.plannerapp.ui.auth.AuthViewModelFactory
 
@@ -221,7 +221,7 @@ fun MainNavigation() {
                     )
                 }
                 entry<SignIn> {
-                    SignInScreen(
+                    SignInScreenWrapper(
                         viewModel = authViewModel,
                         onSignInSuccess = {
                             backStack.clear()
