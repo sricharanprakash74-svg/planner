@@ -1,5 +1,6 @@
 package com.example.plannerapp.ui.analytics
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -15,10 +16,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.plannerapp.data.DailyCheckinEntity
+import com.example.plannerapp.theme.AppDimens
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -28,7 +29,7 @@ fun StatisticsDashboard(
     modifier: Modifier = Modifier
 ) {
     val totalCompleted = weeklyCheckins.count { it.isCompleted }
-    
+
     // Group by date to find perfect days and daily counts
     val checkinsByDate = weeklyCheckins.groupBy { it.exactDate }
     val perfectDays = checkinsByDate.count { (_, tasks) -> tasks.isNotEmpty() && tasks.all { it.isCompleted } }
@@ -37,7 +38,7 @@ fun StatisticsDashboard(
         // --- Top Stat Cards ---
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(AppDimens.Space12)
         ) {
             StatCard(
                 title = "Completed Tasks",
@@ -51,12 +52,12 @@ fun StatisticsDashboard(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Space16))
 
         // --- Weekly Bar Chart ---
         WeeklyBarChartCard(checkinsByDate = checkinsByDate)
-        
-        Spacer(modifier = Modifier.height(16.dp))
+
+        Spacer(modifier = Modifier.height(AppDimens.Space16))
 
         // --- Mini Heatmap ---
         HeatmapCard(weeklyCheckins = weeklyCheckins)
@@ -65,15 +66,18 @@ fun StatisticsDashboard(
 
 @Composable
 private fun StatCard(title: String, value: String, modifier: Modifier = Modifier) {
+    // Ambient depth: thin border stroke instead of a harsh drop shadow
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(AppDimens.CornerCard),
+        border = BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = AppDimens.ElevationNone)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(AppDimens.Space16),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -81,7 +85,7 @@ private fun StatCard(title: String, value: String, modifier: Modifier = Modifier
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(AppDimens.Space8))
             Text(
                 text = value,
                 style = MaterialTheme.typography.headlineLarge,
@@ -98,7 +102,7 @@ private fun WeeklyBarChartCard(checkinsByDate: Map<String, List<DailyCheckinEnti
     val formatter = DateTimeFormatter.ISO_LOCAL_DATE
     val dayFormatter = DateTimeFormatter.ofPattern("EEE")
 
-    // Map last 7 days to counts
+    // Map last 7 days to completion counts
     val last7Days = (6 downTo 0).map { today.minusDays(it.toLong()) }
     val counts = last7Days.map { date ->
         val dateStr = date.format(formatter)
@@ -109,19 +113,21 @@ private fun WeeklyBarChartCard(checkinsByDate: Map<String, List<DailyCheckinEnti
     val primaryColor = MaterialTheme.colorScheme.primary
     val trackColor = MaterialTheme.colorScheme.primaryContainer
 
+    // Ambient depth: border stroke instead of drop shadow elevation
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(16.dp)
+        border = BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = AppDimens.ElevationNone),
+        shape = RoundedCornerShape(AppDimens.CornerCard)
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(AppDimens.Space20)) {
             Text(
                 text = "Daily Completed",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(AppDimens.Space24))
 
             // Bar Chart Canvas
             Canvas(
@@ -159,7 +165,7 @@ private fun WeeklyBarChartCard(checkinsByDate: Map<String, List<DailyCheckinEnti
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(AppDimens.Space12))
 
             // X-Axis Labels
             Row(
@@ -180,26 +186,27 @@ private fun WeeklyBarChartCard(checkinsByDate: Map<String, List<DailyCheckinEnti
 
 @Composable
 private fun HeatmapCard(weeklyCheckins: List<DailyCheckinEntity>) {
+    // Ambient depth: border stroke instead of drop shadow elevation
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(16.dp)
+        border = BorderStroke(AppDimens.BorderThin, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = AppDimens.ElevationNone),
+        shape = RoundedCornerShape(AppDimens.CornerCard)
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(AppDimens.Space20)) {
             Text(
                 text = "Recent Activity Map",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(AppDimens.Space16))
 
-            // A simplified grid simulating the "Annual Heatmap" from the design, but just for recent data
             val today = LocalDate.now()
             val formatter = DateTimeFormatter.ISO_LOCAL_DATE
-            
-            // 3 rows, 7 columns (3 weeks)
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+
+            // 3 rows × 7 columns — 28dp cell with 4dp gap (both on the 4pt grid)
+            Column(verticalArrangement = Arrangement.spacedBy(AppDimens.Space4)) {
                 for (row in 0 until 3) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -209,20 +216,22 @@ private fun HeatmapCard(weeklyCheckins: List<DailyCheckinEntity>) {
                             val daysAgo = (2 - row) * 7 + (6 - col)
                             val date = today.minusDays(daysAgo.toLong())
                             val dateStr = date.format(formatter)
-                            
-                            val completedCount = weeklyCheckins.filter { it.exactDate == dateStr && it.isCompleted }.size
-                            
+
+                            val completedCount = weeklyCheckins.filter {
+                                it.exactDate == dateStr && it.isCompleted
+                            }.size
+
                             val color = when {
                                 completedCount == 0 -> MaterialTheme.colorScheme.surfaceVariant
-                                completedCount < 2 -> MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                                completedCount < 4 -> MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                                else -> MaterialTheme.colorScheme.primary
+                                completedCount < 2  -> MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                completedCount < 4  -> MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                                else                -> MaterialTheme.colorScheme.primary
                             }
 
                             Box(
                                 modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(AppDimens.Space4))
                                     .background(color)
                             )
                         }

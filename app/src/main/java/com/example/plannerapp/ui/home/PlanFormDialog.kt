@@ -124,14 +124,14 @@ fun PlanFormDialog(
                             Spacer(modifier = Modifier.height(10.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 val presets = listOf("08:00" to "8:00 AM", "12:00" to "12:00 PM", "20:00" to "8:00 PM")
                                 presets.forEach { (timeVal, label) ->
                                     FilterChip(
                                         selected = reminderTime == timeVal,
                                         onClick = { reminderTime = timeVal },
-                                        label = { Text(label, fontSize = 11.sp) }
+                                        label = { Text(label, fontSize = MaterialTheme.typography.labelSmall.fontSize) }
                                     )
                                 }
                                 val isCustom = presets.none { it.first == reminderTime }
@@ -139,7 +139,7 @@ fun PlanFormDialog(
                                     selected = isCustom,
                                     onClick = { showTimePicker = true },
                                     label = {
-                                        Text(if (isCustom) formatReminderTime(reminderTime) else "Custom", fontSize = 11.sp)
+                                        Text(if (isCustom) formatReminderTime(reminderTime) else "Custom", fontSize = MaterialTheme.typography.labelSmall.fontSize)
                                     }
                                 )
                             }
@@ -149,7 +149,7 @@ fun PlanFormDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            Button(
                 onClick = {
                     if (text.isNotBlank()) {
                         val defaultTaskDur = if (makeDefault) durationDays else 1

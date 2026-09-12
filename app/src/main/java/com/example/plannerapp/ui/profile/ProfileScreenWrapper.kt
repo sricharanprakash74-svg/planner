@@ -29,6 +29,8 @@ fun ProfileScreenWrapper(
     onAnalyticsClick: () -> Unit,
     onPlanClick: (Long) -> Unit = {},
     onEditProfileClick: () -> Unit = {},
+    onCreatorMonetizationClick: () -> Unit = {},
+    onBecomeCreatorClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -115,6 +117,8 @@ fun ProfileScreenWrapper(
         onPlanClick = onPlanClick,
         onEditProfileClick = onEditProfileClick,
         onOpenCreditHub = { showCreditHub = true },
+        onCreatorMonetizationClick = onCreatorMonetizationClick,
+        onBecomeCreatorClick = onBecomeCreatorClick,
         modifier = modifier
     )
 

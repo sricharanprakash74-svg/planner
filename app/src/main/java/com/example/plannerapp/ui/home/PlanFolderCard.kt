@@ -1,7 +1,14 @@
 package com.example.plannerapp.ui.home
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,12 +25,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.plannerapp.data.PlanEntity
+import com.example.plannerapp.theme.AppDimens
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -45,11 +54,33 @@ fun PlanFolderCard(
     val haptic = LocalHapticFeedback.current
     var menuExpanded by remember { mutableStateOf(false) }
 
+    // Spring press-scale: subtle elastic scale-down on tap for tactile feel
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "cardScale"
+    )
+
+    // Animated selection border color â€” fluid transition instead of hard cut
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+        label = "selectionBorder"
+    )
+
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .scale(scale)
+            .clip(RoundedCornerShape(AppDimens.CornerCard))
             .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null, // scale handles feedback; ripple is noise
                 onClick = onClick,
                 onLongClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -57,13 +88,14 @@ fun PlanFolderCard(
                 }
             ),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-            else MaterialTheme.colorScheme.primaryContainer
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+            else MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        border = BorderStroke(AppDimens.BorderThin, borderColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = AppDimens.ElevationNone)
     ) {
         Column(
-            modifier = Modifier.padding(14.dp)
+            modifier = Modifier.padding(AppDimens.Space16)
         ) {
             // Top row: folder icon + pin badge + menu/checkbox
             Row(
@@ -75,16 +107,16 @@ fun PlanFolderCard(
                     Icon(
                         imageVector = Icons.Outlined.Folder,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(28.dp)
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
                     )
                     if (plan.isPinned) {
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Icon(
                             imageVector = Icons.Filled.PushPin,
                             contentDescription = "Pinned",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                 }
@@ -103,7 +135,7 @@ fun PlanFolderCard(
                             Icon(
                                 imageVector = Icons.Filled.MoreVert,
                                 contentDescription = "Options",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
@@ -148,19 +180,19 @@ fun PlanFolderCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(AppDimens.Space8))
 
             // Plan title
             Text(
                 text = plan.heading,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(AppDimens.Space8))
 
             // Formatted date range
             val cardDateFormatter = DateTimeFormatter.ofPattern("MMM d")
@@ -171,12 +203,12 @@ fun PlanFolderCard(
             val progressFraction = (daysElapsed.toFloat() / totalDays.toFloat()).coerceIn(0f, 1f)
 
             Text(
-                text = "${startDate.format(cardDateFormatter)} – ${endDate.format(cardDateFormatter)}",
+                text = "${startDate.format(cardDateFormatter)} - ${endDate.format(cardDateFormatter)}",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.65f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(AppDimens.Space8))
 
             // Days-elapsed progress bar
             LinearProgressIndicator(
@@ -186,10 +218,10 @@ fun PlanFolderCard(
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp)),
                 color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f)
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(AppDimens.Space8))
 
             // Bottom row: day count + reminder badge
             Row(
@@ -200,7 +232,7 @@ fun PlanFolderCard(
                 Text(
                     text = "Day $daysElapsed / $totalDays",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (plan.reminderEnabled) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

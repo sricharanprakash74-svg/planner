@@ -22,7 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
+import com.example.plannerapp.theme.AppDimens
 
 @Composable
 fun AuthHeaderSection(
@@ -34,10 +34,10 @@ fun AuthHeaderSection(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // App Brand Header
+        // App Brand Icon — 56dp on the 4pt grid
         Box(
             modifier = Modifier
-                .size(64.dp)
+                .size(AppDimens.IconBoxXl)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
@@ -46,11 +46,11 @@ fun AuthHeaderSection(
                 imageVector = Icons.Outlined.Folder,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(AppDimens.IconSizeXl)
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Space16))
 
         Text(
             text = "PlannerApp",
@@ -59,7 +59,7 @@ fun AuthHeaderSection(
             color = MaterialTheme.colorScheme.onBackground
         )
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Space8))
 
         Text(
             text = if (isSignUpMode) {
@@ -72,7 +72,7 @@ fun AuthHeaderSection(
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Space24))
 
         // Auth Mode Tabs (Sign In / Create Account)
         PrimaryTabRow(
@@ -81,7 +81,7 @@ fun AuthHeaderSection(
             contentColor = MaterialTheme.colorScheme.primary,
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(AppDimens.CornerCompact))
         ) {
             Tab(
                 selected = !isSignUpMode,

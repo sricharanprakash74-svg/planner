@@ -8,10 +8,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import com.example.plannerapp.data.DailyCheckinEntity
 import com.example.plannerapp.data.PlanEntity
 import com.example.plannerapp.data.UserEntity
+import com.example.plannerapp.theme.AppDimens
 
 /**
  * Backward-compatible ViewModel entry point delegating to ProfileScreenWrapper.
@@ -23,6 +23,8 @@ fun ProfileScreen(
     onAnalyticsClick: () -> Unit,
     onPlanClick: (Long) -> Unit = {},
     onEditProfileClick: () -> Unit = {},
+    onCreatorMonetizationClick: () -> Unit = {},
+    onBecomeCreatorClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     ProfileScreenWrapper(
@@ -31,12 +33,15 @@ fun ProfileScreen(
         onAnalyticsClick = onAnalyticsClick,
         onPlanClick = onPlanClick,
         onEditProfileClick = onEditProfileClick,
+        onCreatorMonetizationClick = onCreatorMonetizationClick,
+        onBecomeCreatorClick = onBecomeCreatorClick,
         modifier = modifier
     )
 }
 
 /**
  * Pure stateless presentation composable for the Profile Screen.
+ * All spacing is locked to the 4pt/8pt grid via AppDimens.
  */
 @Composable
 fun ProfileScreen(
@@ -54,6 +59,8 @@ fun ProfileScreen(
     onPlanClick: (Long) -> Unit,
     onEditProfileClick: () -> Unit,
     onOpenCreditHub: () -> Unit,
+    onCreatorMonetizationClick: () -> Unit = {},
+    onBecomeCreatorClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -70,18 +77,20 @@ fun ProfileScreen(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = AppDimens.Space16),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Space12))
 
         // 1. Top Bar: Handle Dropdown & Settings Action
         ProfileTopBar(
             handle = handle,
+            creditBalance = creditBalance,
+            onOpenCreditHub = onOpenCreditHub,
             onSettingsClick = onSettingsClick
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Space16))
 
         // 2. Profile Header: Avatar, Stats, Identity, Bio, Actions, and Credits Pill
         ProfileHeaderSection(
@@ -95,10 +104,12 @@ fun ProfileScreen(
             onPickPhoto = onPickPhoto,
             onEditProfileClick = onEditProfileClick,
             onOpenCreditHub = onOpenCreditHub,
+            onCreatorMonetizationClick = onCreatorMonetizationClick,
+            onBecomeCreatorClick = onBecomeCreatorClick,
             context = context
         )
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Space16))
 
         // 3. Analytics Card (in place of account suggestions carousel)
         ProfileAnalyticsCard(
@@ -107,7 +118,7 @@ fun ProfileScreen(
             onAnalyticsClick = onAnalyticsClick
         )
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Space16))
 
         // 4. Reddit-Style Tabs: Posts | Comments | Plans
         ProfileTabsBar(
@@ -115,7 +126,7 @@ fun ProfileScreen(
             onTabSelected = { selectedTab = it }
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Space16))
 
         // 5. Tab Content
         when (selectedTab) {
@@ -132,6 +143,6 @@ fun ProfileScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Space24))
     }
 }

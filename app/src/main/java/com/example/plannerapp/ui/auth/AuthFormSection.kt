@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,7 +34,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.dp
+import com.example.plannerapp.theme.AppDimens
 
 @Composable
 fun AuthFormSection(
@@ -50,30 +51,36 @@ fun AuthFormSection(
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
+    // imePadding keeps the submit CTA visible above the software keyboard
+    // without layout jumps when the keyboard appears.
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .imePadding()
+    ) {
         // Error Banner
         AnimatedVisibility(visible = errorMessage != null) {
             errorMessage?.let { errorText ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    shape = RoundedCornerShape(10.dp),
+                        .padding(bottom = AppDimens.Space16),
+                    shape = RoundedCornerShape(AppDimens.CornerCompact),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer
                     )
                 ) {
                     Row(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(AppDimens.Space12),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.ErrorOutline,
                             contentDescription = "Error",
                             tint = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(AppDimens.IconSizeMd)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(AppDimens.Space8))
                         Text(
                             text = errorText,
                             style = MaterialTheme.typography.bodySmall,
@@ -99,14 +106,14 @@ fun AuthFormSection(
                 },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(AppDimens.CornerCompact),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
                     imeAction = ImeAction.Next
                 )
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(AppDimens.Space16))
         }
 
         // Email Field
@@ -123,14 +130,14 @@ fun AuthFormSection(
             },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(AppDimens.CornerCompact),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Email,
                 imeAction = ImeAction.Next
             )
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(AppDimens.Space16))
 
         // Password Field
         OutlinedTextField(
@@ -155,7 +162,7 @@ fun AuthFormSection(
             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(AppDimens.CornerCompact),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Done

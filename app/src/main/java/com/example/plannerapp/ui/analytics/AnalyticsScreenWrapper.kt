@@ -13,7 +13,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import com.example.plannerapp.theme.AppDimens
+import com.example.plannerapp.ui.components.AnalyticsSkeleton
 import com.example.plannerapp.ui.profile.ProfileViewModel
 import com.example.plannerapp.ui.state.Resource
 
@@ -28,8 +29,27 @@ fun AnalyticsScreenWrapper(
 
     val uiState = when (val state = uiStateResource) {
         is Resource.Loading -> {
-            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Analytics & Insights", fontWeight = FontWeight.Bold) },
+                        navigationIcon = {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
+                        }
+                    )
+                },
+                modifier = modifier
+            ) { paddingValues ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .padding(AppDimens.Space16)
+                ) {
+                    AnalyticsSkeleton()
+                }
             }
             return
         }
@@ -60,7 +80,7 @@ fun AnalyticsScreenWrapper(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(AppDimens.Space16),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Stock Price-Style Consistency Graph
@@ -69,20 +89,24 @@ fun AnalyticsScreenWrapper(
                 streak = uiState.streak
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(AppDimens.Space24))
 
             // Quick Stats Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(AppDimens.Space16)
             ) {
                 Card(
                     modifier = Modifier.weight(1f),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(AppDimens.CornerCard)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(text = "Streak", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Column(modifier = Modifier.padding(AppDimens.Space16)) {
+                        Text(
+                            text = "Streak",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                         Text(
                             text = "${uiState.streak} Days",
                             style = MaterialTheme.typography.headlineMedium,
@@ -91,14 +115,18 @@ fun AnalyticsScreenWrapper(
                         )
                     }
                 }
-                
+
                 Card(
                     modifier = Modifier.weight(1f),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(AppDimens.CornerCard)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(text = "Consistency", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Column(modifier = Modifier.padding(AppDimens.Space16)) {
+                        Text(
+                            text = "Consistency",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
                         Text(
                             text = "${uiState.consistencyPercentage}%",
                             style = MaterialTheme.typography.headlineMedium,
@@ -109,8 +137,8 @@ fun AnalyticsScreenWrapper(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
-            
+            Spacer(modifier = Modifier.height(AppDimens.Space24))
+
             // Detailed breakdown dashboard (Bars & Heatmap)
             StatisticsDashboard(weeklyCheckins = uiState.weeklyCheckins)
         }

@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -136,6 +137,13 @@ fun MainNavigation() {
         )
     }
 
+    val connectivityObserver = remember { com.example.plannerapp.data.NetworkConnectivityObserver(context) }
+    val connectivityStatus by connectivityObserver.observe().collectAsState(initial = com.example.plannerapp.data.ConnectivityStatus.Available)
+    val isOnline = connectivityStatus == com.example.plannerapp.data.ConnectivityStatus.Available
+
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.example.plannerapp.data.LocalIsOnline provides isOnline
+    ) {
     AppScaffoldWrapper(
         currentTab = currentTab,
         onTabSelected = { tab ->
@@ -324,5 +332,6 @@ fun MainNavigation() {
                 }
             }
         )
+    }
     }
 }

@@ -1,8 +1,13 @@
 package com.example.plannerapp.ui.detail
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +30,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Today
@@ -56,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import com.example.plannerapp.data.DailyTaskView
 import com.example.plannerapp.ui.components.DurationPickerDialog
 import com.example.plannerapp.ui.components.DurationPickerRow
+import com.example.plannerapp.ui.components.TaskThreadBranch
 import com.example.plannerapp.ui.home.PlanFormDialog
 import com.example.plannerapp.ui.state.Resource
 import com.google.gson.Gson
@@ -1585,6 +1593,7 @@ fun TaskItemWithSubtasks(
 
     val completedSubtaskCount = completedSubtasks.count { it }
     var menuExpanded by remember { mutableStateOf(false) }
+    var isSubtasksExpanded by remember { mutableStateOf(true) }
 
     val targetContainerColor = if (task.isCompleted) {
         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
@@ -1666,11 +1675,32 @@ fun TaskItemWithSubtasks(
                             )
                         }
                         if (subtasks.isNotEmpty()) {
-                            Text(
-                                text = "$completedSubtaskCount/${subtasks.size} subtasks",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (completedSubtaskCount == subtasks.size && subtasks.isNotEmpty()) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    isSubtasksExpanded = !isSubtasksExpanded
+                                }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "$completedSubtaskCount/${subtasks.size} subtasks",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (completedSubtaskCount == subtasks.size && subtasks.isNotEmpty()) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Icon(
+                                        imageVector = if (isSubtasksExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                        contentDescription = if (isSubtasksExpanded) "Collapse subtasks" else "Expand subtasks",
+                                        modifier = Modifier.size(13.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1714,38 +1744,65 @@ fun TaskItemWithSubtasks(
             }
 
             if (subtasks.isNotEmpty()) {
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                Column(modifier = Modifier.padding(start = 32.dp, end = 16.dp, top = 8.dp, bottom = 12.dp)) {
-                    subtasks.forEachIndexed { index, subtaskTitle ->
-                        val isSubChecked = completedSubtasks.getOrElse(index) { false }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable(enabled = !isLocked) { 
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onSubtaskCheckedChange(index, !isSubChecked) 
-                                }
-                        ) {
-                            Checkbox(
-                                checked = isSubChecked,
-                                onCheckedChange = { 
-                                    if (!isLocked) {
+                AnimatedVisibility(
+                    visible = isSubtasksExpanded,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp)
+                    ) {
+                        subtasks.forEachIndexed { index, subtaskTitle ->
+                            val isSubChecked = completedSubtasks.getOrElse(index) { false }
+                            val isLast = index == subtasks.lastIndex
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(IntrinsicSize.Min)
+                                    .clickable(enabled = !isLocked) { 
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onSubtaskCheckedChange(index, it)
+                                        onSubtaskCheckedChange(index, !isSubChecked) 
                                     }
-                                },
-                                enabled = !isLocked,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = subtaskTitle,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (isSubChecked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface,
-                                textDecoration = if (isSubChecked) TextDecoration.LineThrough else TextDecoration.None
-                            )
+                            ) {
+                                // Reddit-style linking thread branch connecting parent to subtask
+                                TaskThreadBranch(
+                                    isLast = isLast,
+                                    isCompleted = isSubChecked,
+                                    width = 32.dp,
+                                    trunkX = 12.dp,
+                                    modifier = Modifier.fillMaxHeight()
+                                )
+
+                                Spacer(modifier = Modifier.width(6.dp))
+
+                                Checkbox(
+                                    checked = isSubChecked,
+                                    onCheckedChange = { 
+                                        if (!isLocked) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onSubtaskCheckedChange(index, it)
+                                        }
+                                    },
+                                    enabled = !isLocked,
+                                    modifier = Modifier.size(24.dp)
+                                )
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Text(
+                                    text = subtaskTitle,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (isSubChecked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface,
+                                    textDecoration = if (isSubChecked) TextDecoration.LineThrough else TextDecoration.None,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(vertical = 6.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -1811,39 +1868,67 @@ fun TaskFormSheet(
             Text("Subtasks (Optional)", style = MaterialTheme.typography.titleSmall)
             Spacer(modifier = Modifier.height(8.dp))
 
-            subtasks.forEachIndexed { index, subtask ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = subtask,
-                        onValueChange = { newSubtask -> 
-                            val newSubtasks = subtasks.toMutableList()
-                            newSubtasks[index] = newSubtask
-                            subtasks = newSubtasks
-                        },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("Subtask ${index + 1}") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    if (subtasks.size > 1) {
-                        IconButton(
-                            onClick = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                subtasks.forEachIndexed { index, subtask ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min)
+                            .padding(bottom = 8.dp)
+                    ) {
+                        TaskThreadBranch(
+                            isLast = false,
+                            isCompleted = false,
+                            width = 24.dp,
+                            trunkX = 8.dp,
+                            modifier = Modifier.fillMaxHeight()
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        OutlinedTextField(
+                            value = subtask,
+                            onValueChange = { newSubtask -> 
                                 val newSubtasks = subtasks.toMutableList()
-                                newSubtasks.removeAt(index)
+                                newSubtasks[index] = newSubtask
                                 subtasks = newSubtasks
+                            },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("Subtask ${index + 1}") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        if (subtasks.size > 1) {
+                            IconButton(
+                                onClick = {
+                                    val newSubtasks = subtasks.toMutableList()
+                                    newSubtasks.removeAt(index)
+                                    subtasks = newSubtasks
+                                }
+                            ) {
+                                Icon(Icons.Filled.Close, contentDescription = "Remove subtask", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                        ) {
-                            Icon(Icons.Filled.Close, contentDescription = "Remove subtask", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
-            }
 
-            TextButton(onClick = { subtasks = subtasks + "" }) {
-                Text("+ Add another subtask")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min)
+                ) {
+                    TaskThreadBranch(
+                        isLast = true,
+                        isCompleted = false,
+                        width = 24.dp,
+                        trunkX = 8.dp,
+                        modifier = Modifier.fillMaxHeight()
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    TextButton(onClick = { subtasks = subtasks + "" }) {
+                        Text("+ Add another subtask")
+                    }
+                }
             }
             
             Spacer(modifier = Modifier.height(24.dp))
