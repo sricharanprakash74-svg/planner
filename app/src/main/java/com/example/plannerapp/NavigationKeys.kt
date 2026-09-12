@@ -18,10 +18,6 @@ import kotlinx.serialization.Serializable
 @Serializable data object SettingsBackup : NavKey
 @Serializable data object SettingsExportData : NavKey
 @Serializable data object SettingsDeleteAccount : NavKey
-@Serializable data class CommunityDiscussion(val postId: String) : NavKey
-@Serializable data class CreatorProfile(val userId: String) : NavKey
-@Serializable data object SettingsCreatorSetup : NavKey
-@Serializable data object SettingsCreatorMonetization : NavKey
 @Serializable data object SettingsSavedPlans : NavKey
 @Serializable data object SettingsActivityLog : NavKey
 @Serializable data object SettingsTimeFocus : NavKey
@@ -31,3 +27,8 @@ import kotlinx.serialization.Serializable
 @Serializable data object SettingsHelp : NavKey
 @Serializable data object SettingsPrivacyPolicy : NavKey
 @Serializable data object SettingsAbout : NavKey
+@Serializable data object SettingsCreatorSetup : NavKey
+@Serializable data object SettingsCreatorMonetization : NavKey
+@Serializable data class CommunityDiscussion(val postId: String) : NavKey
+@Serializable data class CreatorProfile(val userId: String) : NavKey
+@Serializable data object Paywall : NavKey

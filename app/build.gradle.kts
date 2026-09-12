@@ -28,10 +28,24 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("googlePlay") {
+            dimension = "distribution"
+            buildConfigField("String", "RC_API_KEY", "\"goog_placeholder_key\"")
+            buildConfigField("String", "STORE_NAME", "\"Google Play\"")
+        }
+        create("galaxyStore") {
+            dimension = "distribution"
+            buildConfigField("String", "RC_API_KEY", "\"galx_placeholder_key\"")
+            buildConfigField("String", "STORE_NAME", "\"Samsung Galaxy Store\"")
+        }
+    }
+
     buildFeatures {
       compose = true
       aidl = false
-      buildConfig = false
+      buildConfig = true
       shaders = false
     }
 
@@ -122,4 +136,10 @@ dependencies {
 
   // Stripe SDK
   implementation("com.stripe:stripe-android:20.44.0")
+
+  // Multi-Store In-App Purchases & Subscriptions (RevenueCat)
+  val revenueCatVersion = "10.20.0"
+  compileOnly("com.revenuecat.purchases:purchases:$revenueCatVersion")
+  "googlePlayImplementation"("com.revenuecat.purchases:purchases:$revenueCatVersion")
+  "galaxyStoreImplementation"("com.revenuecat.purchases:purchases-store-galaxy:$revenueCatVersion")
 }

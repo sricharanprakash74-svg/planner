@@ -10,11 +10,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -56,6 +57,9 @@ import com.example.plannerapp.ui.social.CommunityFeedViewModelFactory
 import com.example.plannerapp.ui.auth.SignInScreenWrapper
 import com.example.plannerapp.ui.auth.AuthViewModel
 import com.example.plannerapp.ui.auth.AuthViewModelFactory
+import com.example.plannerapp.billing.BillingViewModel
+import com.example.plannerapp.billing.BillingViewModelFactory
+import com.example.plannerapp.ui.billing.PaywallScreen
 
 @Composable
 fun MainNavigation() {
@@ -95,6 +99,9 @@ fun MainNavigation() {
     val createPlanViewModel: CreatePlanViewModel = viewModel(factory = CreatePlanViewModelFactory(repository, userDao, context.applicationContext))
     val settingsViewModel: SettingsViewModel = viewModel(factory = SettingsViewModelFactory(userDao))
     val authViewModel: AuthViewModel = viewModel(factory = AuthViewModelFactory(userDao))
+    val activityLogViewModel: ActivityLogViewModel = viewModel(factory = ActivityLogViewModelFactory(repository, userDao, database.badgeDao()))
+    val exportDataViewModel: ExportDataViewModel = viewModel(factory = ExportDataViewModelFactory(repository, userDao))
+    val publishPlanViewModel: PublishPlanViewModel = viewModel(factory = PublishPlanViewModelFactory(repository, userDao, socialRepository))
     val creditViewModel: com.example.plannerapp.credits.CreditViewModel = viewModel(
         factory = remember {
             com.example.plannerapp.credits.CreditViewModelFactory(
@@ -103,9 +110,6 @@ fun MainNavigation() {
             )
         }
     )
-    val activityLogViewModel: com.example.plannerapp.ui.settings.ActivityLogViewModel = viewModel(factory = com.example.plannerapp.ui.settings.ActivityLogViewModelFactory(repository, userDao, database.badgeDao()))
-    val exportDataViewModel: com.example.plannerapp.ui.settings.ExportDataViewModel = viewModel(factory = com.example.plannerapp.ui.settings.ExportDataViewModelFactory(repository, userDao))
-    val publishPlanViewModel: com.example.plannerapp.ui.settings.PublishPlanViewModel = viewModel(factory = com.example.plannerapp.ui.settings.PublishPlanViewModelFactory(repository, userDao, socialRepository))
 
     val triggerSync = {
         WorkManager.getInstance(context).enqueue(OneTimeWorkRequest.from(SyncWorker::class.java))
@@ -155,8 +159,8 @@ fun MainNavigation() {
     androidx.compose.runtime.CompositionLocalProvider(
         com.example.plannerapp.data.LocalIsOnline provides isOnline
     ) {
-    AppScaffoldWrapper(
-        currentTab = currentTab,
+        AppScaffoldWrapper(
+            currentTab = currentTab,
         onTabSelected = { tab ->
             currentTab = tab
             when (tab) {
@@ -186,8 +190,13 @@ fun MainNavigation() {
             modifier = Modifier.padding(innerPadding),
             entryProvider = entryProvider {
                 entry<Home> {
+                    val feedViewModel: CommunityFeedViewModel = viewModel(
+                        key = "home_feed_online",
+                        factory = CommunityFeedViewModelFactory(socialRepository, "")
+                    )
                     HomeScreenWrapper(
                         viewModel = homeViewModel,
+                        feedViewModel = feedViewModel,
                         onPlanClick = { planId -> backStack.add(PlanDetail(planId)) },
                         onPlanCreatedAndOpen = { planId -> backStack.add(PlanDetail(planId, autoOpenAddTask = true)) },
                         onAnalyticsClick = { backStack.add(Analytics) },
@@ -213,34 +222,15 @@ fun MainNavigation() {
                         onCreatorClick = { creatorId -> backStack.add(CreatorProfile(creatorId)) }
                     )
                 }
-                entry<CommunityDiscussion> { key ->
-                    val discussionViewModel: CommunityDiscussionViewModel = viewModel(
-                        key = "discussion_${key.postId}",
-                        factory = CommunityDiscussionViewModelFactory(
-                            postId = key.postId,
-                            socialRepository = socialRepository,
-                            plannerRepository = repository,
-                            userDao = userDao
-                        )
-                    )
-                    CommunityDiscussionScreen(
-                        viewModel = discussionViewModel,
-                        creditViewModel = creditViewModel,
-                        onBack = { backStack.removeLastOrNull() },
-                        onPlanJoinedAndOpen = { planId ->
-                            backStack.removeLastOrNull()
-                            backStack.add(PlanDetail(planId))
-                        },
-                        onCreatorClick = { creatorId -> backStack.add(CreatorProfile(creatorId)) }
-                    )
-                }
                 entry<Profile> {
                     ProfileScreenWrapper(
                         viewModel = profileViewModel,
                         onSettingsClick = { backStack.add(Settings) },
                         onAnalyticsClick = { backStack.add(Analytics) },
                         onPlanClick = { planId -> backStack.add(PlanDetail(planId)) },
-                        onEditProfileClick = { backStack.add(SettingsEditProfile) }
+                        onEditProfileClick = { backStack.add(SettingsEditProfile) },
+                        onCreatorMonetizationClick = { backStack.add(SettingsCreatorMonetization) },
+                        onBecomeCreatorClick = { backStack.add(SettingsCreatorSetup) }
                     )
                 }
                 entry<Analytics> {
@@ -282,7 +272,7 @@ fun MainNavigation() {
                         onAccessibilityClick = { backStack.add(SettingsAccessibility) },
                         onCreatorSetupClick = { backStack.add(SettingsCreatorSetup) },
                         onCreatorMonetizationClick = { backStack.add(SettingsCreatorMonetization) },
-                        onSubscriptionClick = { },
+                        onSubscriptionClick = { backStack.add(Paywall) },
                         onHelpClick = { backStack.add(SettingsHelp) },
                         onPrivacyPolicyClick = { backStack.add(SettingsPrivacyPolicy) },
                         onAboutClick = { backStack.add(SettingsAbout) },
@@ -378,7 +368,7 @@ fun MainNavigation() {
                     )
                 }
                 entry<SettingsCreatorSetup> {
-                    com.example.plannerapp.ui.settings.CreatorSetupScreen(
+                    CreatorSetupScreen(
                         viewModel = settingsViewModel,
                         onBack = { backStack.removeLastOrNull() },
                         onMonetizationClick = { backStack.add(SettingsCreatorMonetization) }
@@ -434,6 +424,37 @@ fun MainNavigation() {
                         viewModel = creatorViewModel,
                         onBack = { backStack.removeLastOrNull() },
                         onPostClick = { postId -> backStack.add(CommunityDiscussion(postId)) }
+                    )
+                }
+                entry<CommunityDiscussion> { key ->
+                    val discussionViewModel: CommunityDiscussionViewModel = viewModel(
+                        key = "discussion_${key.postId}",
+                        factory = CommunityDiscussionViewModelFactory(
+                            postId = key.postId,
+                            socialRepository = socialRepository,
+                            plannerRepository = repository,
+                            userDao = userDao
+                        )
+                    )
+                    CommunityDiscussionScreen(
+                        viewModel = discussionViewModel,
+                        creditViewModel = creditViewModel,
+                        onBack = { backStack.removeLastOrNull() },
+                        onPlanJoinedAndOpen = { planId ->
+                            backStack.removeLastOrNull()
+                            backStack.add(PlanDetail(planId))
+                        },
+                        onCreatorClick = { creatorId -> backStack.add(CreatorProfile(creatorId)) }
+                    )
+                }
+                entry<Paywall> {
+                    val billingViewModel: BillingViewModel = viewModel(
+                        key = "revenuecat_billing_vm",
+                        factory = BillingViewModelFactory()
+                    )
+                    PaywallScreen(
+                        viewModel = billingViewModel,
+                        onDismiss = { backStack.removeLastOrNull() }
                     )
                 }
             }
