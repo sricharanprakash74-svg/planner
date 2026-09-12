@@ -24,8 +24,15 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Locale
+import com.example.plannerapp.credits.CreditHubSheet
+import com.example.plannerapp.credits.CreditViewModel
+import com.example.plannerapp.ui.components.TaskThreadBranch
 import com.example.plannerapp.data.social.CommunityPost
 import com.example.plannerapp.data.social.PostComment
 import com.example.plannerapp.data.social.VoteType
@@ -42,6 +49,7 @@ fun CommunityDiscussionScreen(
     viewModel: CommunityDiscussionViewModel,
     onBack: () -> Unit,
     onPlanJoinedAndOpen: (Long) -> Unit,
+    creditViewModel: CreditViewModel? = null,
     onCreatorClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -49,6 +57,12 @@ fun CommunityDiscussionScreen(
     val haptic = LocalHapticFeedback.current
     var commentInputText by remember { mutableStateOf("") }
     var showJoinConfirmDialog by remember { mutableStateOf(false) }
+
+    val creditBalance = if (creditViewModel != null) {
+        creditViewModel.balanceFlow.collectAsState().value
+    } else 0
+    var showCreditSheet by remember { mutableStateOf(false) }
+    var purchaseErrorMessage by remember { mutableStateOf<String?>(null) }
 
     // Navigate to local plan if successfully joined
     LaunchedEffect(uiState.joinedLocalPlanId) {
@@ -76,6 +90,7 @@ fun CommunityDiscussionScreen(
                 actions = {
                     uiState.post?.let { post ->
                         val isJoined = uiState.localPlanAlreadyJoinedId != null
+                        val isPaid = post.isPaid && post.creditCost > 0
                         AssistChip(
                             onClick = {
                                 if (isJoined) {
@@ -86,20 +101,20 @@ fun CommunityDiscussionScreen(
                             },
                             label = {
                                 Text(
-                                    text = if (isJoined) "Joined" else "Join (${post.joinCount})",
+                                    text = if (isJoined) "Joined" else if (isPaid) "Unlock (${post.creditCost} C)" else "Join (${post.joinCount})",
                                     fontWeight = FontWeight.Bold
                                 )
                             },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = if (isJoined) Icons.Filled.Check else Icons.Filled.Add,
+                                    imageVector = if (isJoined) Icons.Filled.Check else if (isPaid) Icons.Outlined.Paid else Icons.Filled.Add,
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp)
                                 )
                             },
                             colors = AssistChipDefaults.assistChipColors(
-                                containerColor = if (isJoined) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer,
-                                labelColor = if (isJoined) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                                containerColor = if (isJoined) MaterialTheme.colorScheme.secondaryContainer else if (isPaid) Color(0xFF1E88E5).copy(alpha = 0.15f) else MaterialTheme.colorScheme.primaryContainer,
+                                labelColor = if (isJoined) MaterialTheme.colorScheme.onSecondaryContainer else if (isPaid) Color(0xFF1E88E5) else MaterialTheme.colorScheme.onPrimaryContainer
                             ),
                             modifier = Modifier.padding(end = 8.dp)
                         )
@@ -108,12 +123,19 @@ fun CommunityDiscussionScreen(
             )
         },
         bottomBar = {
-            // Comment input bar
+            // Instagram / Reddit styled Comment input bar
             Surface(
-                tonalElevation = 3.dp,
+                tonalElevation = 2.dp,
+                color = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .navigationBarsPadding()
+                        .imePadding()
+                ) {
                     // Replying to banner
                     AnimatedVisibility(visible = uiState.replyToComment != null) {
                         Row(
@@ -142,15 +164,48 @@ fun CommunityDiscussionScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        // Current user's avatar
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = uiState.currentUser?.displayName?.take(1)?.uppercase() ?: "U",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
                         OutlinedTextField(
                             value = commentInputText,
                             onValueChange = { commentInputText = it },
-                            placeholder = { Text("Add to the discussion...") },
+                            placeholder = {
+                                Text(
+                                    text = if (uiState.replyToComment != null)
+                                        "Reply to @${uiState.replyToComment?.author?.username}..."
+                                    else
+                                        "Add a comment...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                                )
+                            },
                             modifier = Modifier.weight(1f),
                             maxLines = 3,
-                            shape = RoundedCornerShape(24.dp)
+                            shape = RoundedCornerShape(24.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                                focusedBorderColor = MaterialTheme.colorScheme.primary
+                            )
                         )
+
                         Spacer(modifier = Modifier.width(8.dp))
+
                         IconButton(
                             onClick = {
                                 if (commentInputText.isNotBlank()) {
@@ -160,9 +215,16 @@ fun CommunityDiscussionScreen(
                                 }
                             },
                             enabled = commentInputText.isNotBlank(),
-                            colors = IconButtonDefaults.filledIconButtonColors()
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send Comment")
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send Comment",
+                                tint = if (commentInputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -249,10 +311,11 @@ fun CommunityDiscussionScreen(
                 }
             } else {
                 items(uiState.comments, key = { it.commentId }) { comment ->
-                    NestedCommentItem(
+                    ThreadedCommentItem(
                         comment = comment,
                         depth = 0,
-                        onReplyClick = { viewModel.onSetReplyTo(it) }
+                        onReplyClick = { viewModel.onSetReplyTo(it) },
+                        onToggleLike = { viewModel.onToggleCommentLike(it) }
                     )
                 }
             }
@@ -262,30 +325,124 @@ fun CommunityDiscussionScreen(
     }
 
     if (showJoinConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showJoinConfirmDialog = false },
-            icon = { Icon(Icons.Filled.Download, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Join & Fork Plan", fontWeight = FontWeight.Bold) },
-            text = {
-                Text(
-                    text = "This will clone \"${uiState.post?.title}\" into your private local planner starting today. All day-to-day checkboxes and notes remain 100% offline on your device."
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showJoinConfirmDialog = false
-                        viewModel.joinPlan(startDate = LocalDate.now())
+        val post = uiState.post
+        val isPaid = post?.isPaid == true && (post.creditCost > 0)
+        val cost = post?.creditCost ?: 0
+        val hasEnoughCredits = creditBalance >= cost
+
+        if (isPaid) {
+            AlertDialog(
+                onDismissRequest = { showJoinConfirmDialog = false },
+                icon = { Icon(Icons.Outlined.MonetizationOn, contentDescription = null, tint = Color(0xFF1E88E5)) },
+                title = { Text("Unlock Creator Plan", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "\"${post.title}\" was published by a verified creator for $cost credits."
+                        )
+                        Text(
+                            text = "70% of proceeds go directly to support the creator. Unlocking clones this plan into your private offline planner.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Your Credit Balance:", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                text = "$creditBalance Credits",
+                                fontWeight = FontWeight.Bold,
+                                color = if (hasEnoughCredits) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                            )
+                        }
+                        if (!hasEnoughCredits) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "You need ${cost - creditBalance} more credits to unlock this plan.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
-                ) {
-                    Text("Join Plan Now")
+                },
+                confirmButton = {
+                    if (hasEnoughCredits) {
+                        Button(
+                            onClick = {
+                                showJoinConfirmDialog = false
+                                if (creditViewModel != null) {
+                                    val creatorIdNum = post.author.userId.toLongOrNull() ?: 0L
+                                    creditViewModel.unlockCreatorPlan(
+                                        planTitle = post.title,
+                                        cost = cost,
+                                        creatorId = creatorIdNum
+                                    ) { success, msg ->
+                                        if (success) {
+                                            viewModel.joinPlan(startDate = LocalDate.now())
+                                        } else {
+                                            purchaseErrorMessage = msg
+                                        }
+                                    }
+                                } else {
+                                    viewModel.joinPlan(startDate = LocalDate.now())
+                                }
+                            }
+                        ) {
+                            Text("Unlock for $cost Credits")
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                showJoinConfirmDialog = false
+                                showCreditSheet = true
+                            }
+                        ) {
+                            Text("Get Credits")
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showJoinConfirmDialog = false }) {
+                        Text("Cancel")
+                    }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showJoinConfirmDialog = false }) {
-                    Text("Cancel")
+            )
+        } else {
+            AlertDialog(
+                onDismissRequest = { showJoinConfirmDialog = false },
+                icon = { Icon(Icons.Filled.Download, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = { Text("Join & Fork Plan", fontWeight = FontWeight.Bold) },
+                text = {
+                    Text(
+                        text = "This will clone \"${uiState.post?.title}\" into your private local planner starting today. All day-to-day checkboxes and notes remain 100% offline on your device."
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showJoinConfirmDialog = false
+                            viewModel.joinPlan(startDate = LocalDate.now())
+                        }
+                    ) {
+                        Text("Join Plan Now")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showJoinConfirmDialog = false }) {
+                        Text("Cancel")
+                    }
                 }
-            }
+            )
+        }
+    }
+
+    if (showCreditSheet && creditViewModel != null) {
+        CreditHubSheet(
+            viewModel = creditViewModel,
+            onDismissRequest = { showCreditSheet = false }
         )
     }
 }
@@ -357,6 +514,33 @@ private fun PostDetailHeaderCard(
             }
 
             Spacer(modifier = Modifier.height(14.dp))
+
+            if (post.isPaid && post.creditCost > 0) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF1E88E5).copy(alpha = 0.12f),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Paid,
+                            contentDescription = null,
+                            tint = Color(0xFF1E88E5),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Creator Plan • ${post.creditCost} Credits",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E88E5)
+                        )
+                    }
+                }
+            }
 
             Text(
                 text = post.title,
@@ -442,13 +626,21 @@ private fun PostDetailHeaderCard(
                         Text("Open in My Plans", fontWeight = FontWeight.Bold)
                     }
                 } else {
+                    val isPaid = post.isPaid && post.creditCost > 0
                     Button(
                         onClick = onJoin,
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(
+                            imageVector = if (isPaid) Icons.Outlined.Paid else Icons.Filled.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Join Plan (${post.durationDays}d)", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (isPaid) "Unlock (${post.creditCost} Credits)" else "Join Plan (${post.durationDays}d)",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -535,11 +727,30 @@ private fun TaskPreviewRow(task: TaskTemplateDto) {
             }
 
             if (task.subtasks.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Column(modifier = Modifier.padding(start = 26.dp)) {
-                    task.subtasks.forEach { subtask ->
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 1.dp)) {
-                            Text("• ", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 2.dp)
+                ) {
+                    task.subtasks.forEachIndexed { index, subtask ->
+                        val isLast = index == task.subtasks.lastIndex
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min)
+                                .padding(vertical = 1.dp)
+                        ) {
+                            TaskThreadBranch(
+                                isLast = isLast,
+                                isCompleted = false,
+                                width = 18.dp,
+                                trunkX = 7.dp,
+                                cornerRadius = 6.dp,
+                                modifier = Modifier.fillMaxHeight()
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = subtask,
                                 style = MaterialTheme.typography.bodySmall,
@@ -554,128 +765,250 @@ private fun TaskPreviewRow(task: TaskTemplateDto) {
 }
 
 @Composable
-private fun NestedCommentItem(
+private fun ThreadedCommentItem(
     comment: PostComment,
     depth: Int = 0,
-    onReplyClick: (PostComment) -> Unit
+    parentAuthorUsername: String? = null,
+    onReplyClick: (PostComment) -> Unit,
+    onToggleLike: (String) -> Unit
 ) {
-    val maxDepth = 3
-    val clampedDepth = depth.coerceAtMost(maxDepth)
+    val haptic = LocalHapticFeedback.current
+    var isExpanded by remember { mutableStateOf(false) }
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = (clampedDepth * 16).dp)
+            .padding(vertical = 4.dp)
     ) {
-        if (depth > 0) {
-            // Reddit-style vertical line for nested threads
+        // ── Main Comment Row ──────────────────────────────────────────
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) {
+            // Avatar (34.dp for top-level, 26.dp for nested replies)
+            val avatarSize = if (depth == 0) 34.dp else 26.dp
             Box(
                 modifier = Modifier
-                    .width(2.dp)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
+                    .size(avatarSize)
+                    .clip(CircleShape)
+                    .background(
+                        if (depth == 0) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    // Header
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.secondaryContainer),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = comment.author.displayName.take(1).uppercase(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = comment.author.displayName,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (comment.author.isCreator) {
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(
-                                    Icons.Filled.Verified,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
-                        }
+                Text(
+                    text = comment.author.displayName.take(1).uppercase(),
+                    style = if (depth == 0) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (depth == 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
 
-                        Text(
-                            text = formatDate(comment.createdAt),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+            Spacer(modifier = Modifier.width(10.dp))
+
+            // Text & Actions Column
+            Column(modifier = Modifier.weight(1f)) {
+                // Author row: Username + Verified Creator Badge + Relative Time
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = comment.author.username.ifBlank { comment.author.displayName },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    if (comment.author.isCreator) {
+                        Icon(
+                            imageVector = Icons.Filled.Verified,
+                            contentDescription = "Creator",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = formatRelativeTime(comment.createdAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // Comment Content (with highlighted @parent mention if replying)
+                if (depth > 0 && parentAuthorUsername != null) {
+                    Text(
+                        text = buildAnnotatedString {
+                            withStyle(
+                                SpanStyle(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            ) {
+                                append("@$parentAuthorUsername ")
+                            }
+                            append(comment.content)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                } else {
                     Text(
                         text = comment.content,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "▲ ${comment.upvoteCount}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                // Actions: Reply Button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    Text(
+                        text = "Reply",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onReplyClick(comment)
+                            }
+                            .padding(vertical = 2.dp, horizontal = 4.dp)
+                    )
+                }
+            }
+
+            // Like / Heart Icon & Counter (Right side, matching Image 1)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(start = 6.dp)
+            ) {
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onToggleLike(comment.commentId)
+                    },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = if (comment.isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                        contentDescription = "Like",
+                        tint = if (comment.isLiked) Color(0xFFE53935) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                if (comment.upvoteCount > 0) {
+                    Text(
+                        text = formatCompactCount(comment.upvoteCount),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        // ── Nested Replies (Reddit-style tree line + Instagram-style collapse) ──
+        if (comment.replies.isNotEmpty()) {
+            val totalReplies = comment.replies.size
+            val showCollapseToggle = totalReplies > 1
+
+            // Replies container with continuous vertical line on left (Reddit style, matching Image 2)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = if (depth == 0) 17.dp else 13.dp)
+                    .height(IntrinsicSize.Min)
+            ) {
+                // Reddit-Style vertical thread guide line
+                Box(
+                    modifier = Modifier
+                        .width(1.5.dp)
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+                )
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                // Replies column
+                Column(modifier = Modifier.weight(1f)) {
+                    val displayedReplies = if (!showCollapseToggle || isExpanded) {
+                        comment.replies
+                    } else {
+                        listOf(comment.replies.first())
+                    }
+
+                    displayedReplies.forEach { reply ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ThreadedCommentItem(
+                            comment = reply,
+                            depth = depth + 1,
+                            parentAuthorUsername = comment.author.username.ifBlank { comment.author.displayName },
+                            onReplyClick = onReplyClick,
+                            onToggleLike = onToggleLike
                         )
+                    }
 
-                        TextButton(
-                            onClick = { onReplyClick(comment) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    // Instagram-Style "View X more replies" / "Hide replies" (circled in Image 1)
+                    if (showCollapseToggle) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    isExpanded = !isExpanded
+                                }
+                                .padding(vertical = 6.dp)
                         ) {
-                            Icon(Icons.AutoMirrored.Outlined.Reply, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Reply", style = MaterialTheme.typography.labelSmall)
+                            Box(
+                                modifier = Modifier
+                                    .width(28.dp)
+                                    .height(1.dp)
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (!isExpanded) "View ${totalReplies - 1} more replies" else "Hide replies",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
             }
-
-            // Recursive replies rendering
-            if (comment.replies.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                comment.replies.forEach { reply ->
-                    NestedCommentItem(
-                        comment = reply,
-                        depth = depth + 1,
-                        onReplyClick = onReplyClick
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
         }
+    }
+}
+
+private fun formatRelativeTime(epochMillis: Long): String {
+    val now = System.currentTimeMillis()
+    val diffSec = ((now - epochMillis) / 1000).coerceAtLeast(0)
+    return when {
+        diffSec < 60 -> "just now"
+        diffSec < 3600 -> "${diffSec / 60}m"
+        diffSec < 86400 -> "${diffSec / 3600}h"
+        diffSec < 604800 -> "${diffSec / 86400}d"
+        diffSec < 31536000 -> "${diffSec / 604800}w"
+        else -> "${diffSec / 31536000}y"
+    }
+}
+
+private fun formatCompactCount(count: Int): String {
+    return when {
+        count >= 1000 -> String.format(Locale.US, "%.1fK", count / 1000.0)
+        else -> count.toString()
     }
 }
 

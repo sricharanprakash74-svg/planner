@@ -103,6 +103,7 @@ fun MainNavigation() {
             )
         }
     )
+    val publishPlanViewModel: com.example.plannerapp.ui.settings.PublishPlanViewModel = viewModel(factory = com.example.plannerapp.ui.settings.PublishPlanViewModelFactory(repository, userDao, socialRepository))
 
     val triggerSync = {
         WorkManager.getInstance(context).enqueue(OneTimeWorkRequest.from(SyncWorker::class.java))
@@ -213,13 +214,20 @@ fun MainNavigation() {
                 entry<CommunityDiscussion> { key ->
                     val discussionViewModel: CommunityDiscussionViewModel = viewModel(
                         key = "discussion_${key.postId}",
-                        factory = CommunityDiscussionViewModelFactory(key.postId, socialRepository, repository, userDao)
+                        factory = CommunityDiscussionViewModelFactory(
+                            postId = key.postId,
+                            socialRepository = socialRepository,
+                            plannerRepository = repository,
+                            userDao = userDao
+                        )
                     )
                     CommunityDiscussionScreen(
                         viewModel = discussionViewModel,
+                        creditViewModel = creditViewModel,
                         onBack = { backStack.removeLastOrNull() },
-                        onPlanJoinedAndOpen = { newPlanId ->
-                            backStack.add(PlanDetail(newPlanId))
+                        onPlanJoinedAndOpen = { planId ->
+                            backStack.removeLastOrNull()
+                            backStack.add(PlanDetail(planId))
                         },
                         onCreatorClick = { creatorId -> backStack.add(CreatorProfile(creatorId)) }
                     )
@@ -288,6 +296,7 @@ fun MainNavigation() {
                 }
                 entry<SettingsPublishPlan> {
                     PublishPlanScreen(
+                        viewModel = publishPlanViewModel,
                         onBack = { backStack.removeLastOrNull() }
                     )
                 }

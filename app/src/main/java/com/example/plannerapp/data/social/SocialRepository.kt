@@ -27,7 +27,9 @@ interface SocialRepository {
         planTemplateJson: String,
         durationDays: Int,
         tags: List<String>,
-        category: String
+        category: String,
+        isPaid: Boolean = false,
+        creditCost: Int = 0
     ): Result<CommunityPost>
     suspend fun votePost(postId: String, voteType: VoteType): Result<CommunityPost>
     suspend fun toggleSavePost(postId: String): Result<Boolean>
@@ -38,6 +40,7 @@ interface SocialRepository {
         content: String,
         parentCommentId: String? = null
     ): Result<PostComment>
+    suspend fun toggleCommentLike(postId: String, commentId: String): Result<PostComment>
     suspend fun incrementJoinCount(postId: String): Result<Int>
     fun getUserProfile(userId: String): Flow<CloudUser?>
     fun isFollowingCreator(userId: String): Flow<Boolean>
@@ -90,7 +93,9 @@ class InMemorySocialRepository(
         planTemplateJson: String,
         durationDays: Int,
         tags: List<String>,
-        category: String
+        category: String,
+        isPaid: Boolean,
+        creditCost: Int
     ): Result<CommunityPost> {
         val newPost = CommunityPost(
             postId = "post_${UUID.randomUUID().toString().take(8)}",
@@ -105,6 +110,8 @@ class InMemorySocialRepository(
             joinCount = 0,
             commentCount = 0,
             userVote = VoteType.UP,
+            isPaid = isPaid,
+            creditCost = creditCost,
             createdAt = System.currentTimeMillis()
         )
         _posts.value = listOf(newPost) + _posts.value
@@ -193,6 +200,22 @@ class InMemorySocialRepository(
         }
 
         return Result.success(newComment)
+    }
+
+    override suspend fun toggleCommentLike(postId: String, commentId: String): Result<PostComment> {
+        val currentMap = _comments.value.toMutableMap()
+        val postComments = currentMap[postId]?.toMutableList() ?: return Result.failure(IllegalArgumentException("Post not found"))
+        val targetIndex = postComments.indexOfFirst { it.commentId == commentId }
+        if (targetIndex == -1) return Result.failure(IllegalArgumentException("Comment not found"))
+
+        val target = postComments[targetIndex]
+        val newLiked = !target.isLiked
+        val newCount = if (newLiked) target.upvoteCount + 1 else (target.upvoteCount - 1).coerceAtLeast(0)
+        val updated = target.copy(isLiked = newLiked, upvoteCount = newCount)
+        postComments[targetIndex] = updated
+        currentMap[postId] = postComments
+        _comments.value = currentMap
+        return Result.success(updated)
     }
 
     override suspend fun incrementJoinCount(postId: String): Result<Int> {
@@ -479,6 +502,26 @@ class InMemorySocialRepository(
             createdAt = System.currentTimeMillis() - 3600000L * 10
         )
 
+        val reply2 = PostComment(
+            commentId = "comm_1_reply_2",
+            postId = post1.postId,
+            author = zenMind,
+            content = "Do you take the electrolytes before or after the 10 min meditation?",
+            parentCommentId = "comm_1",
+            upvoteCount = 5,
+            createdAt = System.currentTimeMillis() - 3600000L * 8
+        )
+
+        val reply3 = PostComment(
+            commentId = "comm_1_reply_3",
+            postId = post1.postId,
+            author = cal,
+            content = "Right when waking up, before meditation. Helps prime the nervous system for focus.",
+            parentCommentId = "comm_1",
+            upvoteCount = 12,
+            createdAt = System.currentTimeMillis() - 3600000L * 6
+        )
+
         val comment2 = PostComment(
             commentId = "comm_2",
             postId = post1.postId,
@@ -489,7 +532,7 @@ class InMemorySocialRepository(
         )
 
         _comments.value = mapOf(
-            post1.postId to listOf(comment1, reply1, comment2)
+            post1.postId to listOf(comment1, reply1, reply2, reply3, comment2)
         )
     }
 }

@@ -37,10 +37,14 @@ fun PublishPlanDialog(
     var selectedCategory by remember { mutableStateOf("Productivity") }
     var isPublishing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isPaidPlan by remember { mutableStateOf(false) }
+    var selectedCreditPrice by remember { mutableIntStateOf(100) }
 
     val categories = listOf("Productivity", "Health & Fitness", "Mindfulness", "Career & Study", "General")
     val scope = rememberCoroutineScope()
     val planExporter = remember { PlanExporter() }
+    val activeUserFlow by userDao.getActiveUser().collectAsState(initial = null)
+    val isCreator = activeUserFlow?.isCreator == true
 
     AlertDialog(
         onDismissRequest = { if (!isPublishing) onDismiss() },
@@ -126,6 +130,70 @@ fun PublishPlanDialog(
                     }
                 }
 
+                if (isCreator) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Monetize Plan",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = if (isPaidPlan) "Users spend credits to unlock" else "Free for all community users",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(
+                                    checked = isPaidPlan,
+                                    onCheckedChange = { isPaidPlan = it }
+                                )
+                            }
+
+                            if (isPaidPlan) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Unlock Price",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    listOf(50, 100, 250, 500).forEach { price ->
+                                        FilterChip(
+                                            selected = selectedCreditPrice == price,
+                                            onClick = { selectedCreditPrice = price },
+                                            label = { Text("$price pts", style = MaterialTheme.typography.labelSmall) }
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                val creatorEarns = Math.max(1, (selectedCreditPrice * 0.70).toInt())
+                                val usdVal = String.format(java.util.Locale.US, "%.2f", creatorEarns * 0.007)
+                                Text(
+                                    text = "You earn 70%: $creatorEarns credits (~$$usdVal USD) per unlock",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (errorMessage != null) {
                     Text(
                         text = errorMessage ?: "",
@@ -176,7 +244,9 @@ fun PublishPlanDialog(
                                     planTemplateJson = json,
                                     durationDays = templateDto.targetDurationDays,
                                     tags = templateDto.tags,
-                                    category = selectedCategory
+                                    category = selectedCategory,
+                                    isPaid = isPaidPlan && isCreator,
+                                    creditCost = if (isPaidPlan && isCreator) selectedCreditPrice else 0
                                 )
 
                                 if (postResult.isSuccess) {

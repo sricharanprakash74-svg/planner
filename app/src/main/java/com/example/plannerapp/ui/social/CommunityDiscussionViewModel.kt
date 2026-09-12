@@ -24,6 +24,7 @@ data class CommunityDiscussionUiState(
     val joinedLocalPlanId: Long? = null,
     val localPlanAlreadyJoinedId: Long? = null,
     val replyToComment: PostComment? = null,
+    val currentUser: com.example.plannerapp.data.UserEntity? = null,
     val errorMessage: String? = null
 )
 
@@ -49,8 +50,9 @@ class CommunityDiscussionViewModel(
         socialRepository.getPostById(postId),
         socialRepository.getComments(postId),
         plannerRepository.getJoinedCommunityByPostIdFlow(postId),
+        userDao.getActiveUser(),
         _internalState
-    ) { post, comments, existingJoined, internal ->
+    ) { post, comments, existingJoined, activeUser, internal ->
         val template = post?.let {
             planImporter.parseJson(it.planTemplateJson).getOrNull()
         }
@@ -63,6 +65,7 @@ class CommunityDiscussionViewModel(
             joinedLocalPlanId = internal.joinedLocalPlanId,
             localPlanAlreadyJoinedId = existingJoined?.localPlanId,
             replyToComment = internal.replyToComment,
+            currentUser = activeUser,
             errorMessage = internal.errorMessage
         )
     }.stateIn(
@@ -75,6 +78,16 @@ class CommunityDiscussionViewModel(
         viewModelScope.launch {
             try {
                 socialRepository.votePost(postId, voteType)
+            } catch (e: Exception) {
+                _internalState.update { it.copy(errorMessage = e.message) }
+            }
+        }
+    }
+
+    fun onToggleCommentLike(commentId: String) {
+        viewModelScope.launch {
+            try {
+                socialRepository.toggleCommentLike(postId, commentId)
             } catch (e: Exception) {
                 _internalState.update { it.copy(errorMessage = e.message) }
             }

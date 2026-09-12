@@ -37,6 +37,7 @@ data class CommunityPost(
     val isSaved: Boolean = false,
     val isPaid: Boolean = false,
     val skuId: String? = null,
+    val creditCost: Int = 0,
     val createdAt: Long = System.currentTimeMillis()
 ) {
     val score: Int
@@ -52,7 +53,8 @@ data class PostComment(
     val parentCommentId: String? = null,
     val upvoteCount: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
-    val replies: List<PostComment> = emptyList()
+    val replies: List<PostComment> = emptyList(),
+    val isLiked: Boolean = false
 )
 
 @Serializable
