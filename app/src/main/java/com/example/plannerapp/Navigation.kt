@@ -95,6 +95,14 @@ fun MainNavigation() {
     val createPlanViewModel: CreatePlanViewModel = viewModel(factory = CreatePlanViewModelFactory(repository, userDao, context.applicationContext))
     val settingsViewModel: SettingsViewModel = viewModel(factory = SettingsViewModelFactory(userDao))
     val authViewModel: AuthViewModel = viewModel(factory = AuthViewModelFactory(userDao))
+    val creditViewModel: com.example.plannerapp.credits.CreditViewModel = viewModel(
+        factory = remember {
+            com.example.plannerapp.credits.CreditViewModelFactory(
+                com.example.plannerapp.credits.CreditRepository(database.creditDao()),
+                userDao
+            )
+        }
+    )
 
     val triggerSync = {
         WorkManager.getInstance(context).enqueue(OneTimeWorkRequest.from(SyncWorker::class.java))
@@ -185,7 +193,10 @@ fun MainNavigation() {
                         plannerRepository = repository,
                         socialRepository = socialRepository,
                         userDao = userDao,
-                        onNavigateToDiscussion = { postId -> backStack.add(CommunityDiscussion(postId)) }
+                        creditViewModel = creditViewModel,
+                        onNavigateToDiscussion = { postId -> backStack.add(CommunityDiscussion(postId)) },
+                        onCreatorMonetizationClick = { backStack.add(SettingsCreatorMonetization) },
+                        onBecomeCreatorClick = { backStack.add(SettingsCreatorSetup) }
                     )
                 }
                 entry<Explore> { key ->
@@ -298,6 +309,20 @@ fun MainNavigation() {
                             backStack.clear()
                             backStack.add(Home)
                         }
+                    )
+                }
+                entry<SettingsCreatorSetup> {
+                    com.example.plannerapp.ui.settings.CreatorSetupScreen(
+                        viewModel = settingsViewModel,
+                        onBack = { backStack.removeLastOrNull() },
+                        onMonetizationClick = { backStack.add(SettingsCreatorMonetization) }
+                    )
+                }
+                entry<SettingsCreatorMonetization> {
+                    com.example.plannerapp.ui.settings.CreatorMonetizationScreen(
+                        creditViewModel = creditViewModel,
+                        onBack = { backStack.removeLastOrNull() },
+                        onBecomeCreatorClick = { backStack.add(SettingsCreatorSetup) }
                     )
                 }
                 entry<CreatePlan> {

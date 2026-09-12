@@ -20,3 +20,5 @@ import kotlinx.serialization.Serializable
 @Serializable data object SettingsDeleteAccount : NavKey
 @Serializable data class CommunityDiscussion(val postId: String) : NavKey
 @Serializable data class CreatorProfile(val userId: String) : NavKey
+@Serializable data object SettingsCreatorSetup : NavKey
+@Serializable data object SettingsCreatorMonetization : NavKey

@@ -1,5 +1,6 @@
 package com.example.plannerapp.ui.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -33,6 +35,9 @@ import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.*
+import com.example.plannerapp.credits.CreditViewModel
+import com.example.plannerapp.credits.CreditHubSheet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,8 +55,10 @@ import com.example.plannerapp.data.PlanEntity
 import com.example.plannerapp.data.PlannerRepository
 import com.example.plannerapp.data.UserDao
 import com.example.plannerapp.data.social.SocialRepository
+import com.example.plannerapp.theme.AppDimens
 import com.example.plannerapp.ui.components.DurationPickerDialog
 import com.example.plannerapp.ui.components.DurationPickerRow
+import com.example.plannerapp.ui.components.PlanCardSkeleton
 import com.example.plannerapp.ui.social.PublishPlanDialog
 import com.example.plannerapp.ui.state.Resource
 import kotlinx.coroutines.launch
@@ -71,14 +78,37 @@ fun HomeScreen(
     plannerRepository: PlannerRepository? = null,
     socialRepository: SocialRepository? = null,
     userDao: UserDao? = null,
+    creditViewModel: CreditViewModel? = null,
+    feedViewModel: com.example.plannerapp.ui.social.CommunityFeedViewModel? = null,
     onNavigateToDiscussion: (String) -> Unit = {},
+    onCreatorMonetizationClick: () -> Unit = {},
+    onBecomeCreatorClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val isOnline = com.example.plannerapp.data.LocalIsOnline.current
     val uiStateResource by viewModel.uiState.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
+    val activeUser = creditViewModel?.activeUserFlow?.collectAsState()?.value
+    val isCreator = activeUser?.isCreator == true
+
+    val creditBalance = if (creditViewModel != null) {
+        creditViewModel.balanceFlow.collectAsState().value
+    } else 0
+
+    val availableFreezes = if (creditViewModel != null) {
+        creditViewModel.freezesFlow.collectAsState().value
+    } else 0
+
+    var showCreditHubSheet by remember { mutableStateOf(false) }
+    var showProDialog by remember { mutableStateOf(false) }
+    var isPlannerProExpanded by remember { mutableStateOf(true) }
+    var isResourcesExpanded by remember { mutableStateOf(true) }
+    var showAllRecentPlans by remember { mutableStateOf(false) }
+
     var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var planToEdit by remember { mutableStateOf<PlanEntity?>(null) }
     var planToDelete by remember { mutableStateOf<PlanEntity?>(null) }
@@ -93,8 +123,16 @@ fun HomeScreen(
 
     val uiState = when (val state = uiStateResource) {
         is Resource.Loading -> {
-            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            if (!isOnline && feedViewModel != null) return // Will render below if offline anyway
+            // Skeleton loader — preserves layout, no blocking spinner
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                contentPadding = PaddingValues(AppDimens.Space16),
+                horizontalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                verticalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                modifier = modifier.fillMaxSize()
+            ) {
+                items(4) { PlanCardSkeleton() }
             }
             return
         }
@@ -153,11 +191,39 @@ fun HomeScreen(
                                 }
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
-                                    Text(
-                                        text = "PlannerApp",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "PlannerApp",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (isCreator) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.Verified,
+                                                        contentDescription = "Verified Creator",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Text(
+                                                        text = "Creator",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                     Text(
                                         text = "${uiState.plans.size} Active Plans",
                                         style = MaterialTheme.typography.bodySmall,
@@ -171,26 +237,329 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                     }
 
-                    // Main Feeds / Discover Section
+                    // ── Recently Visited (Image 2 style) ────────────────
+                    if (uiState.plans.isNotEmpty()) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Recently Visited",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                TextButton(
+                                    onClick = { showAllRecentPlans = !showAllRecentPlans },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = if (showAllRecentPlans) "Show less" else "See all",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+
+                        val recentList = if (showAllRecentPlans) uiState.plans else uiState.plans.take(3)
+                        items(recentList, key = { "recent_${it.planId}" }) { plan ->
+                            val colorSeed = (plan.heading.hashCode() and 0x7FFFFFFF) % 4
+                            val avatarColor = when (colorSeed) {
+                                0 -> Color(0xFFE53935)
+                                1 -> Color(0xFF1E88E5)
+                                2 -> Color(0xFF43A047)
+                                else -> Color(0xFFFB8C00)
+                            }
+                            NavigationDrawerItem(
+                                label = {
+                                    Text(
+                                        text = plan.heading,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                },
+                                icon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(avatarColor),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = plan.heading.firstOrNull()?.uppercase() ?: "P",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                },
+                                selected = false,
+                                onClick = {
+                                    coroutineScope.launch { drawerState.close() }
+                                    onPlanClick(plan.planId)
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+                        }
+
+                        item {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                    }
+
+                    // ── Planner Pro Section (Image 1 style) ───────────────
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isPlannerProExpanded = !isPlannerProExpanded }
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Planner Pro",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Icon(
+                                imageVector = if (isPlannerProExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (isPlannerProExpanded) {
+                        item {
+                            NavigationDrawerItem(
+                                label = { Text("Try Planner Pro", fontWeight = FontWeight.Medium) },
+                                icon = { Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null) },
+                                selected = false,
+                                onClick = {
+                                    coroutineScope.launch { drawerState.close() }
+                                    showProDialog = true
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+                        }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    // ── Resources Section (Image 1 style) ─────────────────
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isResourcesExpanded = !isResourcesExpanded }
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Resources",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Icon(
+                                imageVector = if (isResourcesExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (isResourcesExpanded) {
+                        item {
+                            NavigationDrawerItem(
+                                label = {
+                                    Column {
+                                        Text("Planner Premium", fontWeight = FontWeight.Medium)
+                                        Text(
+                                            "Ads-free & unlimited cloud sync",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                icon = { Icon(Icons.Outlined.Shield, contentDescription = null) },
+                                selected = false,
+                                onClick = {
+                                    coroutineScope.launch { drawerState.close() }
+                                    showProDialog = true
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+
+                            NavigationDrawerItem(
+                                label = {
+                                    Column {
+                                        Text("Earn", fontWeight = FontWeight.Medium)
+                                        Text(
+                                            "Earn credits on PlannerApp",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                icon = { Icon(Icons.Outlined.Token, contentDescription = null) },
+                                selected = false,
+                                onClick = {
+                                    coroutineScope.launch { drawerState.close() }
+                                    showCreditHubSheet = true
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+
+                            NavigationDrawerItem(
+                                label = {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text("Planner Store", fontWeight = FontWeight.Medium)
+                                            Text(
+                                                "Get credits & streak freezes",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFFFF5722))
+                                        )
+                                    }
+                                },
+                                icon = { Icon(Icons.Outlined.Storefront, contentDescription = null) },
+                                selected = false,
+                                onClick = {
+                                    coroutineScope.launch { drawerState.close() }
+                                    showCreditHubSheet = true
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+                        }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    // ── Creator Section ──────────────────────────────────
                     item {
                         Text(
-                            text = "Discover & Feeds",
+                            text = if (isCreator) "Creator Studio" else "Creator Program",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                         )
 
-                        NavigationDrawerItem(
-                            label = { Text("Popular & Community Plans", fontWeight = FontWeight.SemiBold) },
-                            icon = { Icon(Icons.Outlined.Explore, contentDescription = null) },
-                            selected = false,
-                            onClick = {
-                                coroutineScope.launch { drawerState.close() }
-                                onExploreClick("")
-                            },
-                            modifier = Modifier.padding(horizontal = 12.dp)
-                        )
+                        if (isCreator) {
+                            NavigationDrawerItem(
+                                label = {
+                                    Column {
+                                        Text("Monetization & Payouts", fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            "70% earnings split & cash-outs",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.MonetizationOn,
+                                        contentDescription = null,
+                                        tint = Color(0xFF2E7D32)
+                                    )
+                                },
+                                selected = false,
+                                onClick = {
+                                    coroutineScope.launch { drawerState.close() }
+                                    onCreatorMonetizationClick()
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+                        } else {
+                            NavigationDrawerItem(
+                                label = {
+                                    Column {
+                                        Text("Become a Creator", fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            "Monetize plans & earn credits",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Star,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                },
+                                selected = false,
+                                onClick = {
+                                    coroutineScope.launch { drawerState.close() }
+                                    onBecomeCreatorClick()
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+                        }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    // ── Discover & Feeds ──────────────────────────────────
+                    item {
+                        if (isOnline) {
+                            Text(
+                                text = "Discover & Feeds",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                            )
+
+                            NavigationDrawerItem(
+                                label = { Text("Popular & Community Plans", fontWeight = FontWeight.SemiBold) },
+                                icon = { Icon(Icons.Outlined.Explore, contentDescription = null) },
+                                selected = false,
+                                onClick = {
+                                    coroutineScope.launch { drawerState.close() }
+                                    onExploreClick("")
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+                        }
 
                         NavigationDrawerItem(
                             label = { Text("Performance & Stock Graph", fontWeight = FontWeight.SemiBold) },
@@ -247,7 +616,7 @@ fun HomeScreen(
                         }
                     }
 
-                    // Settings & Resources Section
+                    // Preferences
                     item {
                         Spacer(modifier = Modifier.height(8.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
@@ -307,59 +676,40 @@ fun HomeScreen(
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     )
                 } else {
-                    // Reddit-inspired Top Bar with Hamburger Menu and Pill Search Bar
+                    // WhatsApp-style Minimalist Top Bar
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 1.dp
+                        tonalElevation = 0.dp
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Hamburger Menu Icon
-                            IconButton(
-                                onClick = { coroutineScope.launch { drawerState.open() } }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Menu,
-                                    contentDescription = "Main Menu",
-                                    tint = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            // Pill-shaped Search Bar
-                            Surface(
+                        Column {
+                            Row(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp),
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Search,
-                                        contentDescription = "Search",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                if (isSearchActive) {
+                                    // WhatsApp-style active search bar
+                                    IconButton(
+                                        onClick = {
+                                            isSearchActive = false
+                                            searchQuery = ""
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = "Close Search",
+                                            tint = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
 
                                     TextField(
                                         value = searchQuery,
                                         onValueChange = { searchQuery = it },
                                         placeholder = {
                                             Text(
-                                                text = "Search plans or community...",
-                                                style = MaterialTheme.typography.bodyMedium,
+                                                text = if (isOnline) "Search community plans..." else "Search local plans...",
+                                                style = MaterialTheme.typography.bodyLarge,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         },
@@ -371,53 +721,103 @@ fun HomeScreen(
                                             unfocusedIndicatorColor = Color.Transparent
                                         ),
                                         singleLine = true,
-                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                            imeAction = androidx.compose.ui.text.input.ImeAction.Search
-                                        ),
-                                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                                            onSearch = {
-                                                if (searchQuery.isNotBlank()) {
-                                                    onExploreClick(searchQuery)
-                                                }
-                                            }
-                                        ),
                                         modifier = Modifier.weight(1f)
                                     )
 
                                     if (searchQuery.isNotBlank()) {
-                                        // Navigate to Explore with the typed query
-                                        IconButton(
-                                            onClick = { onExploreClick(searchQuery) },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Search,
-                                                contentDescription = "Search Community",
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = { searchQuery = "" },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
+                                        IconButton(onClick = { searchQuery = "" }) {
                                             Icon(
                                                 imageVector = Icons.Filled.Close,
                                                 contentDescription = "Clear",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(16.dp)
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    // WhatsApp-style header: Menu + Brand Title + Actions
+                                    IconButton(
+                                        onClick = { coroutineScope.launch { drawerState.open() } }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Menu,
+                                            contentDescription = "Main Menu",
+                                            tint = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(4.dp))
+
+                                    Text(
+                                        text = "Planner",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+
+                                    Spacer(modifier = Modifier.weight(1f))
+
+                                    if (!isOnline) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.CloudOff,
+                                            contentDescription = "Offline Mode",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    }
+
+                                    IconButton(onClick = { isSearchActive = true }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Search,
+                                            contentDescription = "Search",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    if (creditViewModel != null) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+
+                                        // Plain Minimalist Credit Badge: No diamond icon, no separate freezes pill
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                            border = BorderStroke(
+                                                1.dp,
+                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                            ),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable { showCreditHubSheet = true }
+                                        ) {
+                                            Text(
+                                                text = "$creditBalance cr",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                                             )
                                         }
                                     }
                                 }
                             }
+
+                            HorizontalDivider(
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                            )
                         }
                     }
                 }
             },
             floatingActionButton = {
                 if (!isSelectionMode) {
-                    FloatingActionButton(onClick = { showCreateDialog = true }) {
+                    FloatingActionButton(
+                        onClick = { showCreateDialog = true },
+                        shape = RoundedCornerShape(16.dp),
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp)
+                    ) {
                         Icon(Icons.Filled.Add, contentDescription = "Create Plan")
                     }
                 }
@@ -429,13 +829,20 @@ fun HomeScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                if (filteredPlans.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp), 
-                        contentAlignment = Alignment.Center
-                    ) {
+                if (isOnline && feedViewModel != null) {
+                    com.example.plannerapp.ui.explore.ExploreScreen(
+                        viewModel = feedViewModel,
+                        onPostClick = { postId -> onNavigateToDiscussion(postId) },
+                        onCreatorClick = {}
+                    )
+                } else {
+                    if (filteredPlans.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp), 
+                            contentAlignment = Alignment.Center
+                        ) {
                         if (searchQuery.isNotBlank()) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
@@ -465,53 +872,53 @@ fun HomeScreen(
                             }
                         } else {
                             Card(
-                                shape = RoundedCornerShape(20.dp),
+                                shape = RoundedCornerShape(AppDimens.CornerCard),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.padding(24.dp)
+                                    modifier = Modifier.padding(AppDimens.Space24)
                                 ) {
                                     Surface(
                                         shape = CircleShape,
                                         color = MaterialTheme.colorScheme.primaryContainer,
-                                        modifier = Modifier.size(64.dp)
+                                        modifier = Modifier.size(AppDimens.IconBoxLg)
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
                                             Icon(
                                                 imageVector = Icons.Outlined.Checklist,
                                                 contentDescription = null,
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(32.dp)
+                                                modifier = Modifier.size(AppDimens.IconSizeXl)
                                             )
                                         }
                                     }
-                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Spacer(modifier = Modifier.height(AppDimens.Space16))
                                     Text(
                                         text = "Your Journey Starts Here",
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Spacer(modifier = Modifier.height(AppDimens.Space8))
                                     Text(
                                         text = "Create your first routine, challenge, or project plan to start building unstoppable daily habits.",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textAlign = TextAlign.Center
                                     )
-                                    Spacer(modifier = Modifier.height(20.dp))
+                                    Spacer(modifier = Modifier.height(AppDimens.Space20))
                                     Button(
                                         onClick = { showCreateDialog = true },
-                                        shape = RoundedCornerShape(12.dp)
+                                        shape = RoundedCornerShape(AppDimens.CornerCompact)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Filled.Add,
                                             contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(AppDimens.IconSizeMd)
                                         )
-                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Spacer(modifier = Modifier.width(AppDimens.Space8))
                                         Text("Create Your First Plan", fontWeight = FontWeight.Bold)
                                     }
                                 }
@@ -521,9 +928,9 @@ fun HomeScreen(
                 } else {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        contentPadding = PaddingValues(AppDimens.Space16),
+                        horizontalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                        verticalArrangement = Arrangement.spacedBy(AppDimens.Space16)
                     ) {
                         items(filteredPlans, key = { it.planId }) { plan ->
                             val isSelected = selectedPlanIds.contains(plan.planId)
@@ -777,6 +1184,113 @@ fun HomeScreen(
                 }
             }
         )
+    }
+
+    if (showCreditHubSheet && creditViewModel != null) {
+        CreditHubSheet(
+            viewModel = creditViewModel,
+            onDismissRequest = { showCreditHubSheet = false }
+        )
+    }
+
+    if (showProDialog) {
+        AlertDialog(
+            onDismissRequest = { showProDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Outlined.WorkspacePremium,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Planner Pro",
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Supercharge your productivity with Pro features:",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ProBenefitRow(
+                        icon = Icons.Outlined.CloudSync,
+                        title = "Unlimited Cloud Sync",
+                        subtitle = "Sync routines across all your devices seamlessly"
+                    )
+                    ProBenefitRow(
+                        icon = Icons.Outlined.AutoGraph,
+                        title = "Advanced Analytics",
+                        subtitle = "Deep-dive charts and habit consistency metrics"
+                    )
+                    ProBenefitRow(
+                        icon = Icons.Outlined.Storefront,
+                        title = "Creator Marketplace",
+                        subtitle = "Publish paid plans and earn credits from forks"
+                    )
+                    ProBenefitRow(
+                        icon = Icons.Outlined.Bolt,
+                        title = "Streak Multipliers",
+                        subtitle = "Bonus credits earned for consistency milestones"
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showProDialog = false
+                        showCreditHubSheet = true
+                    }
+                ) {
+                    Text("Visit Store")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showProDialog = false }) {
+                    Text("Maybe Later")
+                }
+            }
+        )
+    }
+    }
+}
+
+@Composable
+fun ProBenefitRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

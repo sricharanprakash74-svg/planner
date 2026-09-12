@@ -21,7 +21,11 @@ fun HomeScreenWrapper(
     plannerRepository: PlannerRepository? = null,
     socialRepository: SocialRepository? = null,
     userDao: UserDao? = null,
+    creditViewModel: com.example.plannerapp.credits.CreditViewModel? = null,
+    feedViewModel: com.example.plannerapp.ui.social.CommunityFeedViewModel? = null,
     onNavigateToDiscussion: (String) -> Unit = {},
+    onCreatorMonetizationClick: () -> Unit = {},
+    onBecomeCreatorClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     HomeScreen(
@@ -34,7 +38,12 @@ fun HomeScreenWrapper(
         plannerRepository = plannerRepository,
         socialRepository = socialRepository,
         userDao = userDao,
+        creditViewModel = creditViewModel,
+        feedViewModel = feedViewModel,
         onNavigateToDiscussion = onNavigateToDiscussion,
+        onCreatorMonetizationClick = onCreatorMonetizationClick,
+        onBecomeCreatorClick = onBecomeCreatorClick,
         modifier = modifier
     )
+
 }
