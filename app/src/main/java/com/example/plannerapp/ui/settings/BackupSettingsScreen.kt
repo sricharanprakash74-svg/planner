@@ -13,8 +13,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.work.OneTimeWorkRequest
+import androidx.work.WorkManager
+import com.example.plannerapp.sync.SyncWorker
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -22,10 +27,15 @@ fun BackupSettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var autoBackup by remember { mutableStateOf(true) }
-    var wifiOnly by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("backup_prefs", android.content.Context.MODE_PRIVATE) }
+
+    var autoBackup by remember { mutableStateOf(prefs.getBoolean("auto_backup", true)) }
+    var wifiOnly by remember { mutableStateOf(prefs.getBoolean("wifi_only", true)) }
     var isBackingUp by remember { mutableStateOf(false) }
-    var lastBackupText by remember { mutableStateOf("Today, 04:15 AM") }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -38,6 +48,7 @@ fun BackupSettingsScreen(
                 }
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier
     ) { paddingValues ->
         Column(
@@ -47,7 +58,6 @@ fun BackupSettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            // Status Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -63,26 +73,19 @@ fun BackupSettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text(
-                                text = "Cloud Backup Active",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                text = "Last backed up: $lastBackupText",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                            )
+                            Text("Cloud Backup Active", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Tap Back Up Now to sync your latest data.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
                         }
                     }
-
                     Spacer(modifier = Modifier.height(16.dp))
-
                     Button(
                         onClick = {
                             isBackingUp = true
-                            lastBackupText = "Just now"
+                            WorkManager.getInstance(context)
+                                .enqueue(OneTimeWorkRequest.from(SyncWorker::class.java))
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Backup started in the background.")
+                            }
                             isBackingUp = false
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -97,78 +100,60 @@ fun BackupSettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "Auto-Backup Settings",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Text("Auto-Backup Settings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
 
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = "Automatic Cloud Backup", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        text = "Regularly backup changes when idle",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text("Automatic Cloud Backup", style = MaterialTheme.typography.bodyLarge)
+                    Text("Regularly backup changes when idle", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(checked = autoBackup, onCheckedChange = { autoBackup = it })
+                Switch(checked = autoBackup, onCheckedChange = {
+                    autoBackup = it
+                    prefs.edit().putBoolean("auto_backup", it).apply()
+                })
             }
 
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = "Back Up Over Wi-Fi Only", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        text = "Prevent using cellular mobile data",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text("Back Up Over Wi-Fi Only", style = MaterialTheme.typography.bodyLarge)
+                    Text("Prevent using cellular mobile data", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(checked = wifiOnly, onCheckedChange = { wifiOnly = it })
+                Switch(checked = wifiOnly, onCheckedChange = {
+                    wifiOnly = it
+                    prefs.edit().putBoolean("wifi_only", it).apply()
+                })
             }
 
             Spacer(modifier = Modifier.height(24.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
             Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Restore Points",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Text("Restore Points", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
 
             val restorePoints = listOf("Aug 22, 2026 (Automatic)", "Aug 20, 2026 (Manual)", "Aug 15, 2026 (Automatic)")
             restorePoints.forEach { point ->
                 OutlinedCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(text = point, style = MaterialTheme.typography.bodyMedium)
-                        TextButton(onClick = { /* Restore mock */ }) {
+                        TextButton(onClick = {
+                            scope.launch { snackbarHostState.showSnackbar("Restore is not available in this version.") }
+                        }) {
                             Icon(Icons.Outlined.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Restore")

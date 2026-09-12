@@ -103,6 +103,8 @@ fun MainNavigation() {
             )
         }
     )
+    val activityLogViewModel: com.example.plannerapp.ui.settings.ActivityLogViewModel = viewModel(factory = com.example.plannerapp.ui.settings.ActivityLogViewModelFactory(repository, userDao, database.badgeDao()))
+    val exportDataViewModel: com.example.plannerapp.ui.settings.ExportDataViewModel = viewModel(factory = com.example.plannerapp.ui.settings.ExportDataViewModelFactory(repository, userDao))
     val publishPlanViewModel: com.example.plannerapp.ui.settings.PublishPlanViewModel = viewModel(factory = com.example.plannerapp.ui.settings.PublishPlanViewModelFactory(repository, userDao, socialRepository))
 
     val triggerSync = {
@@ -267,24 +269,41 @@ fun MainNavigation() {
                         viewModel = settingsViewModel,
                         onBack = { backStack.removeLastOrNull() },
                         onEditProfileClick = { backStack.add(SettingsEditProfile) },
+                        onSavedPlansClick = { backStack.add(SettingsSavedPlans) },
+                        onActivityLogClick = { backStack.add(SettingsActivityLog) },
                         onNotificationsClick = { backStack.add(SettingsNotifications) },
+                        onTimeFocusClick = { backStack.add(SettingsTimeFocus) },
                         onTimezoneClick = { backStack.add(SettingsTimezone) },
+                        onPlanPrivacyClick = { backStack.add(SettingsPlanPrivacy) },
                         onPublishPlanClick = { backStack.add(SettingsPublishPlan) },
+                        onAppearanceClick = { backStack.add(SettingsAppearance) },
                         onBackupClick = { backStack.add(SettingsBackup) },
                         onExportClick = { backStack.add(SettingsExportData) },
-                        onDeleteAccountClick = { backStack.add(SettingsDeleteAccount) },
-                        onViewCreatorProfileClick = { creatorId -> backStack.add(CreatorProfile(creatorId)) },
-                        onSignInClick = { backStack.add(SignIn) }
+                        onAccessibilityClick = { backStack.add(SettingsAccessibility) },
+                        onCreatorSetupClick = { backStack.add(SettingsCreatorSetup) },
+                        onCreatorMonetizationClick = { backStack.add(SettingsCreatorMonetization) },
+                        onSubscriptionClick = { },
+                        onHelpClick = { backStack.add(SettingsHelp) },
+                        onPrivacyPolicyClick = { backStack.add(SettingsPrivacyPolicy) },
+                        onAboutClick = { backStack.add(SettingsAbout) },
+                        onSignInClick = { backStack.add(SignIn) },
+                        onSignOutClick = {
+                            backStack.clear()
+                            backStack.add(SignIn)
+                            currentTab = BottomNavTab.HOME
+                        }
                     )
                 }
                 entry<SettingsEditProfile> {
                     EditProfileScreen(
                         viewModel = settingsViewModel,
-                        onBack = { backStack.removeLastOrNull() }
+                        onBack = { backStack.removeLastOrNull() },
+                        onDeleteAccountClick = { backStack.add(SettingsDeleteAccount) }
                     )
                 }
                 entry<SettingsNotifications> {
                     NotificationSettingsScreen(
+                        viewModel = settingsViewModel,
                         onBack = { backStack.removeLastOrNull() }
                     )
                 }
@@ -307,6 +326,7 @@ fun MainNavigation() {
                 }
                 entry<SettingsExportData> {
                     ExportDataScreen(
+                        viewModel = exportDataViewModel,
                         onBack = { backStack.removeLastOrNull() }
                     )
                 }
@@ -316,8 +336,45 @@ fun MainNavigation() {
                         onBack = { backStack.removeLastOrNull() },
                         onAccountDeleted = {
                             backStack.clear()
-                            backStack.add(Home)
+                            backStack.add(SignIn)
+                            currentTab = BottomNavTab.HOME
                         }
+                    )
+                }
+                entry<SettingsSavedPlans> {
+                    SavedPlansScreen(
+                        repository = repository,
+                        onBack = { backStack.removeLastOrNull() }
+                    )
+                }
+                entry<SettingsActivityLog> {
+                    ActivityLogScreen(
+                        viewModel = activityLogViewModel,
+                        onBack = { backStack.removeLastOrNull() }
+                    )
+                }
+                entry<SettingsTimeFocus> {
+                    TimeFocusSettingsScreen(
+                        viewModel = settingsViewModel,
+                        onBack = { backStack.removeLastOrNull() }
+                    )
+                }
+                entry<SettingsPlanPrivacy> {
+                    PlanPrivacySettingsScreen(
+                        viewModel = settingsViewModel,
+                        onBack = { backStack.removeLastOrNull() }
+                    )
+                }
+                entry<SettingsAppearance> {
+                    AppearanceSettingsScreen(
+                        viewModel = settingsViewModel,
+                        onBack = { backStack.removeLastOrNull() }
+                    )
+                }
+                entry<SettingsAccessibility> {
+                    AccessibilitySettingsScreen(
+                        viewModel = settingsViewModel,
+                        onBack = { backStack.removeLastOrNull() }
                     )
                 }
                 entry<SettingsCreatorSetup> {
@@ -332,6 +389,21 @@ fun MainNavigation() {
                         creditViewModel = creditViewModel,
                         onBack = { backStack.removeLastOrNull() },
                         onBecomeCreatorClick = { backStack.add(SettingsCreatorSetup) }
+                    )
+                }
+                entry<SettingsHelp> {
+                    HelpScreen(
+                        onBack = { backStack.removeLastOrNull() }
+                    )
+                }
+                entry<SettingsPrivacyPolicy> {
+                    PrivacyPolicyScreen(
+                        onBack = { backStack.removeLastOrNull() }
+                    )
+                }
+                entry<SettingsAbout> {
+                    AboutScreen(
+                        onBack = { backStack.removeLastOrNull() }
                     )
                 }
                 entry<CreatePlan> {

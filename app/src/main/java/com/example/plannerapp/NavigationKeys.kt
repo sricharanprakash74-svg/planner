@@ -22,3 +22,12 @@ import kotlinx.serialization.Serializable
 @Serializable data class CreatorProfile(val userId: String) : NavKey
 @Serializable data object SettingsCreatorSetup : NavKey
 @Serializable data object SettingsCreatorMonetization : NavKey
+@Serializable data object SettingsSavedPlans : NavKey
+@Serializable data object SettingsActivityLog : NavKey
+@Serializable data object SettingsTimeFocus : NavKey
+@Serializable data object SettingsPlanPrivacy : NavKey
+@Serializable data object SettingsAppearance : NavKey
+@Serializable data object SettingsAccessibility : NavKey
+@Serializable data object SettingsHelp : NavKey
+@Serializable data object SettingsPrivacyPolicy : NavKey
+@Serializable data object SettingsAbout : NavKey

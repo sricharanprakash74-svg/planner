@@ -7,26 +7,31 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExportDataScreen(
+    viewModel: ExportDataViewModel,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val formats = listOf("JSON (Recommended for Backup)", "CSV (Excel Compatible)", "Markdown (Readable Notes)")
-    var selectedFormat by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val exportStatus by viewModel.exportStatus.collectAsState()
 
+    val formatOptions = listOf("JSON (Recommended for Backup)", "CSV (Excel Compatible)", "Markdown (Readable Notes)")
+    val formatKeys = listOf("JSON", "CSV", "Markdown")
+    var selectedFormat by remember { mutableIntStateOf(0) }
     var includeHistory by remember { mutableStateOf(true) }
     var includeBadges by remember { mutableStateOf(true) }
-    var exportDone by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -48,30 +53,18 @@ fun ExportDataScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            Text(
-                text = "Export Format",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Text("Export Format", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
 
-            formats.forEachIndexed { index, format ->
+            formatOptions.forEachIndexed { index, format ->
                 Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .clickable { selectedFormat = index },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { selectedFormat = index },
                     shape = RoundedCornerShape(10.dp),
-                    color = if (selectedFormat == index) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                    color = if (selectedFormat == index) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = selectedFormat == index,
-                            onClick = { selectedFormat = index }
-                        )
+                    Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = selectedFormat == index, onClick = { selectedFormat = index })
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(text = format, style = MaterialTheme.typography.bodyMedium)
                     }
@@ -82,19 +75,10 @@ fun ExportDataScreen(
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text(
-                text = "Data to Include",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Text("Data to Include", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = true, onCheckedChange = {}, enabled = false)
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
@@ -102,13 +86,7 @@ fun ExportDataScreen(
                     Text("Included by default", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = includeHistory, onCheckedChange = { includeHistory = it })
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
@@ -116,13 +94,7 @@ fun ExportDataScreen(
                     Text("Completion timestamps and subtask status", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = includeBadges, onCheckedChange = { includeBadges = it })
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
@@ -131,33 +103,54 @@ fun ExportDataScreen(
                 }
             }
 
-            if (exportDone) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Text(
-                        text = "File exported to Downloads/planner_export.json",
-                        modifier = Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            when (val status = exportStatus) {
+                is ExportStatus.Success -> {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("Export complete!", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text("Saved to: ${status.filePath}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                            }
+                        }
+                    }
                 }
+                is ExportStatus.Error -> {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Export failed: ${status.message}", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                }
+                is ExportStatus.Loading -> {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+                    }
+                }
+                else -> {}
             }
 
             Spacer(modifier = Modifier.height(32.dp))
-
             Button(
-                onClick = { exportDone = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
+                onClick = {
+                    viewModel.exportData(context, formatKeys[selectedFormat], includeHistory, includeBadges)
+                },
+                enabled = exportStatus !is ExportStatus.Loading,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Icon(Icons.Outlined.FileDownload, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Generate Export")
+                Text(if (exportStatus is ExportStatus.Loading) "Exporting..." else "Generate Export")
             }
         }
     }
