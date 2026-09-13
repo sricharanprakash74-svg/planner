@@ -1,11 +1,15 @@
 package com.example.plannerapp.data
 
+import com.example.plannerapp.BuildConfig
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.POST
+import java.util.concurrent.TimeUnit
 
 // ── Auth Models ─────────────────────────────────────
 data class LoginRequest(
@@ -137,6 +141,13 @@ interface PlannerApiService {
 
     @POST("/api/payments/create-intent")
     suspend fun createPaymentIntent(@Body payload: CreateIntentPayload): CreateIntentResponse
+
+    // ── Secure Proxy Endpoints ──────────────────────────
+    @GET("/api/proxy/status")
+    suspend fun getProxyStatus(): ProxyStatusResponse
+
+    @POST("/api/proxy/generate")
+    suspend fun generateWithProxy(@Body request: ProxyChatRequest): ProxyChatResponse
 }
 
 data class CreateIntentPayload(
@@ -151,14 +162,63 @@ data class CreateIntentResponse(
     val error: String? = null
 )
 
+// ── Secure Proxy Models ─────────────────────────────
+data class ProxyChatMessage(
+    val role: String,
+    val content: String
+)
+
+data class ProxyChatRequest(
+    val prompt: String? = null,
+    val messages: List<ProxyChatMessage>? = null,
+    val model: String? = null,
+    val maxTokens: Int? = null,
+    val temperature: Double? = null
+)
+
+data class ProxyChatResponse(
+    val success: Boolean,
+    val text: String,
+    val model: String? = null,
+    val isMock: Boolean = false,
+    val error: String? = null,
+    val message: String? = null
+)
+
+data class ProxyStatusResponse(
+    val status: String,
+    val mockMode: Boolean,
+    val upstreamConfigured: Boolean,
+    val model: String,
+    val timestamp: String
+)
+
 // ── Retrofit Singleton ──────────────────────────────
+class ProxyAuthInterceptor : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
+        val original = chain.request()
+        val requestBuilder = original.newBuilder()
+            .header("X-App-Secret", BuildConfig.CLIENT_APP_SECRET)
+            .header("Accept", "application/json")
+        val request = requestBuilder.build()
+        return chain.proceed(request)
+    }
+}
+
 object NetworkClient {
-    // 10.0.2.2 is the special alias to your host loopback interface (localhost) from the Android emulator
-    private const val BASE_URL = "http://10.0.2.2:3000"
+    val okHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .addInterceptor(ProxyAuthInterceptor())
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(45, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
 
     val api: PlannerApiService by lazy {
         Retrofit.Builder()
-            .baseUrl(BASE_URL)
+            .baseUrl(BuildConfig.BACKEND_BASE_URL)
+            .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(PlannerApiService::class.java)

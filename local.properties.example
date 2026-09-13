@@ -1,0 +1,7 @@
+## Sample local.properties template for Shipaton Hackathon
+## Copy this file to local.properties and fill in your values
+# sdk.dir=/path/to/your/Android/Sdk
+
+# Shipaton Hackathon Backend & Secure Client Handshake Secret
+BACKEND_BASE_URL=http://10.0.2.2:3000/
+CLIENT_APP_SECRET=shipaton_hackathon_token

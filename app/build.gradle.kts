@@ -1,9 +1,20 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
   alias(libs.plugins.ksp)
 }
+
+val localProps = Properties()
+val localPropsFile = rootProject.file("local.properties")
+if (localPropsFile.exists()) {
+    localProps.load(localPropsFile.inputStream())
+}
+val rawBackendBaseUrl = localProps.getProperty("BACKEND_BASE_URL") ?: System.getenv("BACKEND_BASE_URL") ?: "http://10.0.2.2:3000/"
+val backendBaseUrl = if (rawBackendBaseUrl.endsWith("/")) rawBackendBaseUrl else "$rawBackendBaseUrl/"
+val clientAppSecret = localProps.getProperty("CLIENT_APP_SECRET") ?: System.getenv("CLIENT_APP_SECRET") ?: "shipaton_hackathon_token"
 
 android {
     namespace = "com.example.plannerapp"
@@ -15,6 +26,8 @@ android {
         versionCode = 1
         versionName = "1.0"
         multiDexEnabled = true
+        buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
+        buildConfigField("String", "CLIENT_APP_SECRET", "\"$clientAppSecret\"")
     }
 
     buildTypes {
@@ -116,7 +129,9 @@ dependencies {
   // WorkManager
   implementation("androidx.work:work-runtime-ktx:2.9.0")
 
-  // Retrofit & Gson
+  // Retrofit & OkHttp
+  implementation("com.squareup.okhttp3:okhttp:4.12.0")
+  implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
   implementation("com.squareup.retrofit2:retrofit:2.11.0")
   implementation("com.squareup.retrofit2:converter-gson:2.11.0")
 
