@@ -40,10 +40,10 @@ interface PlannerDao {
         updatedAt: Long = System.currentTimeMillis()
     )
 
-    @Query("UPDATE plans SET isPinned = :isPinned WHERE planId = :planId")
+    @Query("UPDATE plans SET isPinned = :isPinned, syncStatus = 'PENDING' WHERE planId = :planId")
     suspend fun updatePlanPinStatus(planId: Long, isPinned: Boolean)
 
-    @Query("UPDATE plans SET isPinned = :isPinned WHERE planId IN (:planIds)")
+    @Query("UPDATE plans SET isPinned = :isPinned, syncStatus = 'PENDING' WHERE planId IN (:planIds)")
     suspend fun updatePlansPinStatus(planIds: List<Long>, isPinned: Boolean)
 
     @Query("DELETE FROM plans WHERE planId = :planId")
@@ -93,6 +93,15 @@ interface PlannerDao {
         WHERE c.exactDate = :exactDate AND t.planId = :planId
     """)
     fun getTasksForPlanAndDate(planId: Long, exactDate: String): Flow<List<DailyTaskView>>
+
+    /** Suspend snapshot of the same query — used for credit day-completion checks. */
+    @Query("""
+        SELECT c.checkinId, t.templateId, t.taskDescription, c.isCompleted, t.durationDays, t.subtasks, c.completedSubtasks 
+        FROM daily_checkins c
+        INNER JOIN task_templates t ON c.templateId = t.templateId
+        WHERE c.exactDate = :exactDate AND t.planId = :planId
+    """)
+    suspend fun getTasksForPlanAndDateOnce(planId: Long, exactDate: String): List<DailyTaskView>
 
     @Query("""
         UPDATE daily_checkins 

@@ -118,3 +118,100 @@ CREATE TRIGGER trg_users_updated BEFORE UPDATE ON users
 
 CREATE TRIGGER trg_plans_updated BEFORE UPDATE ON plans
     FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+-- ── Row Level Security (RLS) Policies ────────────────
+-- Critical for public open-source apps using Supabase client anon keys.
+
+-- 1. Enable RLS on all tables
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE task_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE daily_checkins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE badges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE plan_votes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE downloaded_plans ENABLE ROW LEVEL SECURITY;
+
+-- 2. Users Table Policies
+CREATE POLICY "Users can view their own profile"
+    ON users FOR SELECT
+    USING (auth.uid()::text = cloud_user_id);
+
+CREATE POLICY "Users can update their own profile"
+    ON users FOR UPDATE
+    USING (auth.uid()::text = cloud_user_id);
+
+CREATE POLICY "Users can insert their own profile"
+    ON users FOR INSERT
+    WITH CHECK (auth.uid()::text = cloud_user_id);
+
+-- 3. Plans Table Policies
+CREATE POLICY "Users can read their own plans or public community plans"
+    ON plans FOR SELECT
+    USING (
+        is_public = TRUE 
+        OR (user_id IN (SELECT user_id FROM users WHERE cloud_user_id = auth.uid()::text))
+    );
+
+CREATE POLICY "Users can create their own plans"
+    ON plans FOR INSERT
+    WITH CHECK (user_id IN (SELECT user_id FROM users WHERE cloud_user_id = auth.uid()::text));
+
+CREATE POLICY "Users can update their own plans"
+    ON plans FOR UPDATE
+    USING (user_id IN (SELECT user_id FROM users WHERE cloud_user_id = auth.uid()::text));
+
+CREATE POLICY "Users can delete their own plans"
+    ON plans FOR DELETE
+    USING (user_id IN (SELECT user_id FROM users WHERE cloud_user_id = auth.uid()::text));
+
+-- 4. Task Templates Policies
+CREATE POLICY "Users can view templates of visible plans"
+    ON task_templates FOR SELECT
+    USING (
+        plan_id IN (
+            SELECT plan_id FROM plans 
+            WHERE is_public = TRUE 
+               OR user_id IN (SELECT user_id FROM users WHERE cloud_user_id = auth.uid()::text)
+        )
+    );
+
+CREATE POLICY "Users can modify templates of their own plans"
+    ON task_templates FOR ALL
+    USING (
+        plan_id IN (
+            SELECT plan_id FROM plans 
+            WHERE user_id IN (SELECT user_id FROM users WHERE cloud_user_id = auth.uid()::text)
+        )
+    );
+
+-- 5. Daily Check-ins Policies
+CREATE POLICY "Users can manage checkins for their own templates"
+    ON daily_checkins FOR ALL
+    USING (
+        template_id IN (
+            SELECT template_id FROM task_templates
+            WHERE plan_id IN (
+                SELECT plan_id FROM plans 
+                WHERE user_id IN (SELECT user_id FROM users WHERE cloud_user_id = auth.uid()::text)
+            )
+        )
+    );
+
+-- 6. Badges Policies
+CREATE POLICY "Users can view their own badges"
+    ON badges FOR SELECT
+    USING (user_id IN (SELECT user_id FROM users WHERE cloud_user_id = auth.uid()::text));
+
+-- 7. Plan Votes Policies
+CREATE POLICY "Users can read all plan votes"
+    ON plan_votes FOR SELECT
+    USING (TRUE);
+
+CREATE POLICY "Users can cast or change their own votes"
+    ON plan_votes FOR ALL
+    USING (user_id IN (SELECT user_id FROM users WHERE cloud_user_id = auth.uid()::text));
+
+-- 8. Downloaded Plans Policies
+CREATE POLICY "Users can view and manage their downloaded plans"
+    ON downloaded_plans FOR ALL
+    USING (user_id IN (SELECT user_id FROM users WHERE cloud_user_id = auth.uid()::text));

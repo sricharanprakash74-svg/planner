@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.File
 
 class SettingsViewModel(
@@ -64,6 +66,12 @@ class SettingsViewModel(
 
     fun deleteAccount(onSuccess: () -> Unit) {
         viewModelScope.launch {
+            try {
+                // Revoke the Supabase session before wiping local data
+                if (com.example.plannerapp.auth.SupabaseConfig.isConfigured) {
+                    try { com.example.plannerapp.auth.SupabaseConfig.auth.signOut() } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
             val user = userDao.getActiveUserOnce()
             if (user != null) {
                 userDao.deleteUser(user.userId)
@@ -74,34 +82,14 @@ class SettingsViewModel(
         }
     }
 
-    fun simulateSignIn() {
-        viewModelScope.launch {
-            try {
-                val user = userDao.getActiveUserOnce()
-                if (user != null && user.cloudUserId == null) {
-                    val response = com.example.plannerapp.data.NetworkClient.api.login(
-                        com.example.plannerapp.data.LoginRequest(
-                            firebaseToken = "mock_firebase_uid_123",
-                            email = "rahul@gmail.com",
-                            displayName = "Rahul Kumar"
-                        )
-                    )
-                    
-                    userDao.upgradeToCloudUser(
-                        userId = user.userId, 
-                        cloudUserId = response.id.toString(), 
-                        email = response.email ?: "", 
-                        displayName = response.displayName ?: "User"
-                    )
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
+    // simulateSignIn() was removed — it contained hardcoded mock credentials.
 
     fun signOut(onSuccess: () -> Unit) {
         viewModelScope.launch {
+            // Revoke the Supabase JWT so the old session cannot auto-restore
+            if (com.example.plannerapp.auth.SupabaseConfig.isConfigured) {
+                try { com.example.plannerapp.auth.SupabaseConfig.auth.signOut() } catch (_: Exception) {}
+            }
             val user = userDao.getActiveUserOnce() ?: return@launch
             val displayName = user.displayName
             userDao.deleteUser(user.userId)
@@ -110,9 +98,28 @@ class SettingsViewModel(
         }
     }
 
+
     fun saveCreatorCategories(context: android.content.Context, categories: List<String>) {
         val prefs = context.getSharedPreferences("creator_prefs", android.content.Context.MODE_PRIVATE)
         prefs.edit().putStringSet("categories", categories.toSet()).apply()
+        // ISSUE-24: Sync creator categories & tagline to Supabase profiles
+        if (com.example.plannerapp.auth.SupabaseConfig.isConfigured) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val user = userDao.getActiveUserOnce()
+                    val uid = user?.cloudUserId ?: return@launch
+                    val tagline = loadCreatorTagline(context)
+                    val postgrest = com.example.plannerapp.auth.SupabaseConfig.postgrest
+                    postgrest.from("profiles").update(
+                        buildJsonObject {
+                            put("bio", tagline)
+                        }
+                    ) {
+                        filter { eq("id", uid) }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     fun loadCreatorCategories(context: android.content.Context): List<String> {
@@ -123,6 +130,23 @@ class SettingsViewModel(
     fun saveCreatorTagline(context: android.content.Context, tagline: String) {
         val prefs = context.getSharedPreferences("creator_prefs", android.content.Context.MODE_PRIVATE)
         prefs.edit().putString("tagline", tagline).apply()
+        // ISSUE-24: Sync creator tagline to Supabase profiles bio
+        if (com.example.plannerapp.auth.SupabaseConfig.isConfigured) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val user = userDao.getActiveUserOnce()
+                    val uid = user?.cloudUserId ?: return@launch
+                    val postgrest = com.example.plannerapp.auth.SupabaseConfig.postgrest
+                    postgrest.from("profiles").update(
+                        buildJsonObject {
+                            put("bio", tagline)
+                        }
+                    ) {
+                        filter { eq("id", uid) }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     fun loadCreatorTagline(context: android.content.Context): String {
@@ -141,7 +165,42 @@ class SettingsViewModel(
             .putBoolean("vibrate", vibrate)
             .putBoolean("sound", sound)
             .apply()
+
+        // ISSUE-22: Wire the global allow toggle to actual alarm scheduling
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val plansWithReminders = userDao.getActiveUserOnce()?.let { user ->
+                com.example.plannerapp.data.PlannerDatabase.getDatabase(context)
+                    .plannerDao().getPlansWithRemindersEnabled()
+            } ?: emptyList()
+
+            plansWithReminders.forEach { plan ->
+                if (allowNotifications && plan.reminderEnabled && !plan.reminderTime.isNullOrBlank()) {
+                    com.example.plannerapp.notifications.ReminderScheduler.schedule(
+                        context = context,
+                        planId = plan.planId,
+                        planHeading = plan.heading,
+                        reminderTime = plan.reminderTime
+                    )
+                } else if (!allowNotifications) {
+                    com.example.plannerapp.notifications.ReminderScheduler.cancel(context, plan.planId)
+                }
+            }
+
+            // Wire morning & evening daily routines
+            if (allowNotifications && morningReminder) {
+                com.example.plannerapp.notifications.ReminderScheduler.scheduleDailyKickoff(context)
+            } else {
+                com.example.plannerapp.notifications.ReminderScheduler.cancelDailyKickoff(context)
+            }
+
+            if (allowNotifications && eveningReminder) {
+                com.example.plannerapp.notifications.ReminderScheduler.scheduleDailyReflection(context)
+            } else {
+                com.example.plannerapp.notifications.ReminderScheduler.cancelDailyReflection(context)
+            }
+        }
     }
+
     fun loadNotifPrefs(context: android.content.Context): Map<String, Boolean> {
         val p = context.getSharedPreferences("notif_prefs", android.content.Context.MODE_PRIVATE)
         return mapOf(

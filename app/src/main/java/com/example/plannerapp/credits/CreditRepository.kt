@@ -8,60 +8,104 @@ class CreditRepository(private val creditDao: CreditDao) {
     fun observeHistory(userId: Long): Flow<List<CreditTransactionEntity>> = creditDao.getTransactionHistory(userId)
     fun observeAvailableFreezes(userId: Long): Flow<Int> = creditDao.getAvailableFreezes(userId)
 
-    suspend fun awardTaskCompletion(userId: Long, checkinId: Long, points: Int = 10) {
+    // ── Earning Rules ────────────────────────────────────────────────────────
+    //
+    // All award methods are IDEMPOTENT via hasTransaction(userId, type, referenceId).
+    // This means the same event can be safely called multiple times (e.g. if a user
+    // unchecks and re-checks a task, or if a sync retries) without double-awarding.
+
+    /**
+     * +10 Credits: Complete ALL scheduled tasks for the day.
+     *
+     * [referenceId] is "DAY_{date}" e.g. "DAY_2026-09-18".
+     * Called once from PlanDetailViewModel after any task toggle, when all
+     * tasks for the selected date are found to be complete.
+     * The idempotency guard prevents repeated awards if the user marks tasks
+     * complete, then unchecks one and re-checks it.
+     */
+    suspend fun awardDayCompletion(userId: Long, date: String) {
+        val ref = "DAY_$date"
+        if (creditDao.hasTransaction(userId, TransactionType.TASK_COMPLETED, ref)) return
         creditDao.insertTransaction(
             CreditTransactionEntity(
                 userId = userId,
-                amount = points,
+                amount = 10,
                 transactionType = TransactionType.TASK_COMPLETED,
-                referenceId = checkinId.toString(),
+                referenceId = ref,
                 description = "Task completed"
             )
         )
     }
 
-    suspend fun awardStreakMilestone(userId: Long, streakDays: Int, bonusPoints: Int = 50) {
+    /**
+     * +50 Credits at 7-day streak, +100 Credits at 30-day streak.
+     *
+     * [streakDays] is the current computed streak length.
+     * Only milestones of exactly 7 and 30 are awarded — other day counts are ignored.
+     * [referenceId] is "STREAK_{streakDays}" so each milestone fires exactly once
+     * per user lifetime (e.g. "STREAK_7", "STREAK_30").
+     */
+    suspend fun awardStreakMilestone(userId: Long, streakDays: Int) {
+        val (bonusPoints, label) = when (streakDays) {
+            7  -> 50  to "7-Day Streak Milestone Bonus"
+            30 -> 100 to "30-Day Streak Milestone Bonus"
+            else -> return // Not a milestone we award
+        }
+        val ref = "STREAK_$streakDays"
+        if (creditDao.hasTransaction(userId, TransactionType.STREAK_MILESTONE, ref)) return
         creditDao.insertTransaction(
             CreditTransactionEntity(
                 userId = userId,
                 amount = bonusPoints,
                 transactionType = TransactionType.STREAK_MILESTONE,
-                referenceId = "STREAK_$streakDays",
-                description = "$streakDays-Day Streak Milestone Bonus"
+                referenceId = ref,
+                description = label
             )
         )
     }
 
-    suspend fun awardPlanShare(userId: Long, shareCode: String, bonusPoints: Int = 25) {
+    /**
+     * +25 Credits: Share a plan template to the community.
+     *
+     * [postId] is the unique post ID from the social backend.
+     * Idempotency: if the post was already rewarded (e.g. on a retry), no duplicate.
+     */
+    suspend fun awardPlanShare(userId: Long, postId: String) {
+        val ref = "SHARE_$postId"
+        if (creditDao.hasTransaction(userId, TransactionType.PLAN_SHARED, ref)) return
         creditDao.insertTransaction(
             CreditTransactionEntity(
                 userId = userId,
-                amount = bonusPoints,
+                amount = 25,
                 transactionType = TransactionType.PLAN_SHARED,
-                referenceId = shareCode,
+                referenceId = ref,
                 description = "Plan template shared"
             )
         )
     }
 
-    suspend fun awardViralCloneBonus(recipientUserId: Long, referrerUserId: Long, shareCode: String, bonusPoints: Int = 100) {
-        // Reward Recipient
+    /**
+     * +100 Credits to the CREATOR when another user forks/joins their plan.
+     *
+     * Per the design spec: "When another user forks your shared plan."
+     * Only the original creator earns this bonus — the joiner does not.
+     * [referenceId] is "FORK_{joinerUserId}_{postId}" so each unique join-event
+     * awards the creator once, but the same joiner cannot trigger it twice.
+     */
+    suspend fun awardViralCloneBonus(
+        creatorUserId: Long,
+        joinerUserId: Long,
+        postId: String,
+        bonusPoints: Int = 100
+    ) {
+        val ref = "FORK_${joinerUserId}_$postId"
+        if (creditDao.hasTransaction(creatorUserId, TransactionType.VIRAL_CLONE_BONUS, ref)) return
         creditDao.insertTransaction(
             CreditTransactionEntity(
-                userId = recipientUserId,
+                userId = creatorUserId,
                 amount = bonusPoints,
                 transactionType = TransactionType.VIRAL_CLONE_BONUS,
-                referenceId = shareCode,
-                description = "Claimed plan template bonus"
-            )
-        )
-        // Reward Referrer
-        creditDao.insertTransaction(
-            CreditTransactionEntity(
-                userId = referrerUserId,
-                amount = bonusPoints,
-                transactionType = TransactionType.VIRAL_CLONE_BONUS,
-                referenceId = shareCode,
+                referenceId = ref,
                 description = "Peer cloned your shared plan"
             )
         )

@@ -28,10 +28,11 @@ data class LoginResponse(
 
 // ── Sync Models ─────────────────────────────────────
 data class SyncPayload(
-    val userId: Long,
+    val userId: String,           // Supabase cloudUserId (UUID), NOT the local Room Long
     val plans: List<PlanEntity>,
     val templates: List<TaskTemplateEntity>,
-    val checkins: List<DailyCheckinEntity>
+    val checkins: List<DailyCheckinEntity>,
+    val badges: List<BadgeEntity> = emptyList()
 )
 
 data class SyncResponse(
@@ -198,8 +199,10 @@ class ProxyAuthInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
         val original = chain.request()
         val requestBuilder = original.newBuilder()
-            .header("X-App-Secret", BuildConfig.CLIENT_APP_SECRET)
             .header("Accept", "application/json")
+        if (BuildConfig.CLIENT_APP_SECRET.isNotBlank()) {
+            requestBuilder.header("X-App-Secret", BuildConfig.CLIENT_APP_SECRET)
+        }
         val request = requestBuilder.build()
         return chain.proceed(request)
     }

@@ -75,7 +75,7 @@ fun NotificationSettingsScreen(
                 NotificationToggleRow("Streak Saver Warning", "Get notified if you're about to lose your daily streak", streakAlerts) { streakAlerts = it; persist() }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text("Social & Community", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
-                NotificationToggleRow("Community Activity", "Upvotes, comments, and forks on your published plans", communityAlerts) { communityAlerts = it; persist() }
+                NotificationToggleRow("Community Activity (Coming Soon)", "Push alerts for upvotes, comments, and forks will be available in the next cloud update", false, enabled = false) { }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text("Preferences", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
                 NotificationToggleRow("Sound", "Play notification sound", sound) { sound = it; persist() }
@@ -86,17 +86,32 @@ fun NotificationSettingsScreen(
 }
 
 @Composable
-private fun NotificationToggleRow(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun NotificationToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
         }
         Spacer(modifier = Modifier.width(16.dp))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }

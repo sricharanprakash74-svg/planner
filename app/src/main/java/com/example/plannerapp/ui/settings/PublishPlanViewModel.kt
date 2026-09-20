@@ -25,7 +25,8 @@ sealed class PublishStatus {
 class PublishPlanViewModel(
     private val repository: PlannerRepository,
     private val userDao: UserDao,
-    private val socialRepository: SocialRepository
+    private val socialRepository: SocialRepository,
+    private val creditRepository: com.example.plannerapp.credits.CreditRepository? = null
 ) : ViewModel() {
 
     private val _plans = MutableStateFlow<List<PlanEntity>>(emptyList())
@@ -62,8 +63,9 @@ class PublishPlanViewModel(
                 val templateDto = exporter.exportPlan(plan.copy(heading = title, description = description), templates, user, tags, category)
                 val templateJson = Gson().toJson(templateDto)
 
+                val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id ?: user.cloudUserId ?: user.userId.toString()
                 val cloudUser = CloudUser(
-                    userId = user.cloudUserId ?: user.userId.toString(),
+                    userId = cloudUid,
                     username = user.displayName.lowercase().replace(" ", "_"),
                     displayName = user.displayName,
                     avatarUrl = user.avatarUrl,
@@ -73,7 +75,7 @@ class PublishPlanViewModel(
                     totalMembersJoined = 0
                 )
 
-                socialRepository.createPost(
+                val postResult = socialRepository.createPost(
                     author = cloudUser,
                     title = title,
                     description = description,
@@ -85,7 +87,15 @@ class PublishPlanViewModel(
                     creditCost = creditCost
                 )
 
-                _publishStatus.value = PublishStatus.Success
+                if (postResult.isSuccess) {
+                    val post = postResult.getOrNull()
+                    if (post != null) {
+                        creditRepository?.awardPlanShare(user.userId, post.postId)
+                    }
+                    _publishStatus.value = PublishStatus.Success
+                } else {
+                    _publishStatus.value = PublishStatus.Error(postResult.exceptionOrNull()?.message ?: "Publish failed")
+                }
             } catch (e: Exception) {
                 _publishStatus.value = PublishStatus.Error(e.message ?: "Publish failed")
             }
@@ -98,12 +108,13 @@ class PublishPlanViewModel(
 class PublishPlanViewModelFactory(
     private val repository: PlannerRepository,
     private val userDao: UserDao,
-    private val socialRepository: SocialRepository
+    private val socialRepository: SocialRepository,
+    private val creditRepository: com.example.plannerapp.credits.CreditRepository? = null
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(PublishPlanViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return PublishPlanViewModel(repository, userDao, socialRepository) as T
+            return PublishPlanViewModel(repository, userDao, socialRepository, creditRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

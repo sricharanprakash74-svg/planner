@@ -22,6 +22,24 @@ interface CreditDao {
     @Query("SELECT * FROM credit_transactions WHERE userId = :userId ORDER BY createdAt DESC")
     fun getTransactionHistory(userId: Long): Flow<List<CreditTransactionEntity>>
 
+    /**
+     * Idempotency guard — returns true if a transaction of [type] with [referenceId]
+     * already exists for this user. Used before every credit award to prevent
+     * duplicate rewards from repeated actions (e.g. uncheck → recheck a task).
+     */
+    @Query("""
+        SELECT COUNT(*) > 0
+        FROM credit_transactions
+        WHERE userId = :userId
+          AND transactionType = :type
+          AND referenceId = :referenceId
+    """)
+    suspend fun hasTransaction(
+        userId: Long,
+        type: TransactionType,
+        referenceId: String
+    ): Boolean
+
     // ── Streak Freeze Support ───────────────────────────────────────────────
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFreeze(freeze: StreakFreezeEntity): Long

@@ -32,7 +32,10 @@ import androidx.compose.ui.unit.sp
 import java.util.Locale
 import com.example.plannerapp.credits.CreditHubSheet
 import com.example.plannerapp.credits.CreditViewModel
+import com.example.plannerapp.ui.components.InteractiveCommentRail
 import com.example.plannerapp.ui.components.TaskThreadBranch
+import com.example.plannerapp.smartlink.SmartLinkParser
+import com.example.plannerapp.smartlink.ui.SmartLinkCard
 import com.example.plannerapp.data.social.CommunityPost
 import com.example.plannerapp.data.social.PostComment
 import com.example.plannerapp.data.social.VoteType
@@ -54,9 +57,15 @@ fun CommunityDiscussionScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val isFollowingCreator by viewModel.isFollowingCreator.collectAsState()
     val haptic = LocalHapticFeedback.current
     var commentInputText by remember { mutableStateOf("") }
-    var showJoinConfirmDialog by remember { mutableStateOf(false) }
+    var showOptionsMenu by remember { mutableStateOf(false) }
+    var showReportDialog by remember { mutableStateOf(false) }
+    var reportTarget by remember { mutableStateOf<Pair<String, String>?>(null) } // Pair(targetId, targetType)
+    var selectedReportReason by remember { mutableStateOf("Inappropriate or harmful content") }
+
+    val currentUserId = uiState.currentUser?.cloudUserId ?: uiState.currentUser?.userId?.toString() ?: "local_user"
 
     val creditBalance = if (creditViewModel != null) {
         creditViewModel.balanceFlow.collectAsState().value
@@ -70,6 +79,75 @@ fun CommunityDiscussionScreen(
             viewModel.clearJoinedEvent()
             onPlanJoinedAndOpen(newPlanId)
         }
+    }
+
+    if (showReportDialog && reportTarget != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showReportDialog = false
+                reportTarget = null
+            },
+            title = {
+                Text(
+                    text = "Report Content",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Why are you reporting this ${reportTarget!!.second.lowercase()}?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    listOf(
+                        "Inappropriate or harmful content",
+                        "Spam or misleading information",
+                        "Harassment or bullying",
+                        "Intellectual property violation"
+                    ).forEach { reason ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { selectedReportReason = reason }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(
+                                selected = selectedReportReason == reason,
+                                onClick = { selectedReportReason = reason }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = reason, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val target = reportTarget
+                        if (target != null) {
+                            viewModel.reportContent(target.first, target.second, selectedReportReason)
+                        }
+                        showReportDialog = false
+                        reportTarget = null
+                    }
+                ) {
+                    Text("Submit Report")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showReportDialog = false
+                    reportTarget = null
+                }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -90,34 +168,62 @@ fun CommunityDiscussionScreen(
                 actions = {
                     uiState.post?.let { post ->
                         val isJoined = uiState.localPlanAlreadyJoinedId != null
-                        val isPaid = post.isPaid && post.creditCost > 0
                         AssistChip(
                             onClick = {
                                 if (isJoined) {
                                     onPlanJoinedAndOpen(uiState.localPlanAlreadyJoinedId!!)
                                 } else {
-                                    showJoinConfirmDialog = true
+                                    viewModel.joinPlan(startDate = LocalDate.now())
                                 }
                             },
                             label = {
                                 Text(
-                                    text = if (isJoined) "Joined" else if (isPaid) "Unlock (${post.creditCost} C)" else "Join (${post.joinCount})",
+                                    text = if (isJoined) "In My Plans" else "Use This Plan",
                                     fontWeight = FontWeight.Bold
                                 )
                             },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = if (isJoined) Icons.Filled.Check else if (isPaid) Icons.Outlined.Paid else Icons.Filled.Add,
+                                    imageVector = if (isJoined) Icons.Filled.Check else Icons.Filled.Download,
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp)
                                 )
                             },
                             colors = AssistChipDefaults.assistChipColors(
-                                containerColor = if (isJoined) MaterialTheme.colorScheme.secondaryContainer else if (isPaid) Color(0xFF1E88E5).copy(alpha = 0.15f) else MaterialTheme.colorScheme.primaryContainer,
-                                labelColor = if (isJoined) MaterialTheme.colorScheme.onSecondaryContainer else if (isPaid) Color(0xFF1E88E5) else MaterialTheme.colorScheme.onPrimaryContainer
+                                containerColor = if (isJoined) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer,
+                                labelColor = if (isJoined) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer
                             ),
-                            modifier = Modifier.padding(end = 8.dp)
+                            modifier = Modifier.padding(end = 4.dp)
                         )
+
+                        Box {
+                            IconButton(onClick = { showOptionsMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "Options")
+                            }
+                            DropdownMenu(
+                                expanded = showOptionsMenu,
+                                onDismissRequest = { showOptionsMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Report Plan") },
+                                    leadingIcon = { Icon(Icons.Outlined.Flag, contentDescription = null) },
+                                    onClick = {
+                                        showOptionsMenu = false
+                                        reportTarget = Pair(post.postId, "PLAN")
+                                        showReportDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Block @${post.author.username}") },
+                                    leadingIcon = { Icon(Icons.Outlined.Block, contentDescription = null) },
+                                    onClick = {
+                                        showOptionsMenu = false
+                                        viewModel.blockAuthor()
+                                        onBack()
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             )
@@ -252,10 +358,15 @@ fun CommunityDiscussionScreen(
             item {
                 PostDetailHeaderCard(
                     post = post,
+                    template = uiState.planTemplate,
                     isAlreadyJoined = uiState.localPlanAlreadyJoinedId != null,
+                    isJoining = uiState.isJoining,
+                    isFollowing = isFollowingCreator,
+                    onToggleFollow = { viewModel.toggleFollowCreator() },
                     onUpvote = { viewModel.onVote(VoteType.UP) },
                     onDownvote = { viewModel.onVote(VoteType.DOWN) },
-                    onJoin = { showJoinConfirmDialog = true },
+                    onJoin = { viewModel.joinPlan(startDate = LocalDate.now()) },
+                    onSaveToggle = { viewModel.onToggleSave() },
                     onOpenLocalPlan = {
                         uiState.localPlanAlreadyJoinedId?.let { onPlanJoinedAndOpen(it) }
                     },
@@ -314,8 +425,14 @@ fun CommunityDiscussionScreen(
                     ThreadedCommentItem(
                         comment = comment,
                         depth = 0,
+                        currentUserId = currentUserId,
                         onReplyClick = { viewModel.onSetReplyTo(it) },
-                        onToggleLike = { viewModel.onToggleCommentLike(it) }
+                        onToggleLike = { viewModel.onToggleCommentLike(it) },
+                        onDeleteComment = { viewModel.deleteComment(it) },
+                        onReportComment = { commentId ->
+                            reportTarget = Pair(commentId, "COMMENT")
+                            showReportDialog = true
+                        }
                     )
                 }
             }
@@ -324,120 +441,7 @@ fun CommunityDiscussionScreen(
         }
     }
 
-    if (showJoinConfirmDialog) {
-        val post = uiState.post
-        val isPaid = post?.isPaid == true && (post.creditCost > 0)
-        val cost = post?.creditCost ?: 0
-        val hasEnoughCredits = creditBalance >= cost
 
-        if (isPaid) {
-            AlertDialog(
-                onDismissRequest = { showJoinConfirmDialog = false },
-                icon = { Icon(Icons.Outlined.MonetizationOn, contentDescription = null, tint = Color(0xFF1E88E5)) },
-                title = { Text("Unlock Creator Plan", fontWeight = FontWeight.Bold) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "\"${post.title}\" was published by a verified creator for $cost credits."
-                        )
-                        Text(
-                            text = "70% of proceeds go directly to support the creator. Unlocking clones this plan into your private offline planner.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Your Credit Balance:", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                text = "$creditBalance Credits",
-                                fontWeight = FontWeight.Bold,
-                                color = if (hasEnoughCredits) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
-                            )
-                        }
-                        if (!hasEnoughCredits) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "You need ${cost - creditBalance} more credits to unlock this plan.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    if (hasEnoughCredits) {
-                        Button(
-                            onClick = {
-                                showJoinConfirmDialog = false
-                                if (creditViewModel != null) {
-                                    val creatorIdNum = post.author.userId.toLongOrNull() ?: 0L
-                                    creditViewModel.unlockCreatorPlan(
-                                        planTitle = post.title,
-                                        cost = cost,
-                                        creatorId = creatorIdNum
-                                    ) { success, msg ->
-                                        if (success) {
-                                            viewModel.joinPlan(startDate = LocalDate.now())
-                                        } else {
-                                            purchaseErrorMessage = msg
-                                        }
-                                    }
-                                } else {
-                                    viewModel.joinPlan(startDate = LocalDate.now())
-                                }
-                            }
-                        ) {
-                            Text("Unlock for $cost Credits")
-                        }
-                    } else {
-                        Button(
-                            onClick = {
-                                showJoinConfirmDialog = false
-                                showCreditSheet = true
-                            }
-                        ) {
-                            Text("Get Credits")
-                        }
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showJoinConfirmDialog = false }) {
-                        Text("Cancel")
-                    }
-                }
-            )
-        } else {
-            AlertDialog(
-                onDismissRequest = { showJoinConfirmDialog = false },
-                icon = { Icon(Icons.Filled.Download, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                title = { Text("Join & Fork Plan", fontWeight = FontWeight.Bold) },
-                text = {
-                    Text(
-                        text = "This will clone \"${uiState.post?.title}\" into your private local planner starting today. All day-to-day checkboxes and notes remain 100% offline on your device."
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showJoinConfirmDialog = false
-                            viewModel.joinPlan(startDate = LocalDate.now())
-                        }
-                    ) {
-                        Text("Join Plan Now")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showJoinConfirmDialog = false }) {
-                        Text("Cancel")
-                    }
-                }
-            )
-        }
-    }
 
     if (showCreditSheet && creditViewModel != null) {
         CreditHubSheet(
@@ -450,13 +454,20 @@ fun CommunityDiscussionScreen(
 @Composable
 private fun PostDetailHeaderCard(
     post: CommunityPost,
+    template: PlanTemplateDto? = null,
     isAlreadyJoined: Boolean = false,
+    isJoining: Boolean = false,
+    isFollowing: Boolean = false,
+    onToggleFollow: () -> Unit = {},
     onUpvote: () -> Unit,
     onDownvote: () -> Unit,
     onJoin: () -> Unit,
+    onSaveToggle: () -> Unit = {},
     onOpenLocalPlan: () -> Unit = {},
     onCreatorClick: (() -> Unit)? = null
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -464,83 +475,88 @@ private fun PostDetailHeaderCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Author info row (clickable if onCreatorClick provided)
+            // Author info row + Follow button
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = if (onCreatorClick != null) {
-                    Modifier.clickable(onClick = onCreatorClick)
-                } else Modifier
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = if (onCreatorClick != null) {
+                        Modifier.weight(1f).clickable(onClick = onCreatorClick)
+                    } else Modifier.weight(1f)
                 ) {
-                    Text(
-                        text = post.author.displayName.take(1).uppercase(),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = post.author.displayName.take(1).uppercase(),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = post.author.displayName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (post.author.isCreator) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Filled.Verified,
+                                    contentDescription = "Creator",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "@${post.author.username} • ${formatDate(post.createdAt)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.width(10.dp))
-
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = post.author.displayName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold
+                Button(
+                    onClick = onToggleFollow,
+                    modifier = Modifier.height(30.dp),
+                    shape = RoundedCornerShape(15.dp),
+                    colors = if (isFollowing) {
+                        ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (post.author.isCreator) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.Filled.Verified,
-                                contentDescription = "Creator",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
+                    } else {
+                        ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                ) {
                     Text(
-                        text = "@${post.author.username} • ${formatDate(post.createdAt)}",
+                        text = if (isFollowing) "Following" else "Follow",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
-
-            if (post.isPaid && post.creditCost > 0) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF1E88E5).copy(alpha = 0.12f),
-                    modifier = Modifier.padding(bottom = 8.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Paid,
-                            contentDescription = null,
-                            tint = Color(0xFF1E88E5),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Creator Plan • ${post.creditCost} Credits",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1E88E5)
-                        )
-                    }
-                }
-            }
 
             Text(
                 text = post.title,
@@ -556,6 +572,82 @@ private fun PostDetailHeaderCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            // Smart Link in description if present
+            val detectedPostUrl = remember(post.description) {
+                SmartLinkParser.findFirstUrl(post.description)
+            }
+            if (detectedPostUrl != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                SmartLinkCard(
+                    url = detectedPostUrl,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // Overview Metrics Grid
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                horizontalArrangement = Arrangement.SpaceAround
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "${post.durationDays}d",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Duration",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "${template?.tasks?.size ?: 0}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Tasks",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = formatCompactCount(post.joinCount),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Active Users",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "${post.upvoteCount}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Upvotes",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
 
             // Tags
             if (post.tags.isNotEmpty()) {
@@ -581,7 +673,7 @@ private fun PostDetailHeaderCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Action row: Upvote, Downvote, Join
+            // Action row: Upvote, Downvote, Save, Share, Use This Plan
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -589,29 +681,66 @@ private fun PostDetailHeaderCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    IconButton(onClick = onUpvote, modifier = Modifier.size(32.dp)) {
+                    // Vote stepper
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        IconButton(onClick = onUpvote, modifier = Modifier.size(30.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowUp,
+                                contentDescription = "Upvote",
+                                tint = if (post.userVote == VoteType.UP) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = post.score.toString(),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (post.userVote != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                        IconButton(onClick = onDownvote, modifier = Modifier.size(30.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowDown,
+                                contentDescription = "Downvote",
+                                tint = if (post.userVote == VoteType.DOWN) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Save Bookmark
+                    IconButton(
+                        onClick = onSaveToggle,
+                        modifier = Modifier.size(34.dp)
+                    ) {
                         Icon(
-                            imageVector = Icons.Filled.KeyboardArrowUp,
-                            contentDescription = "Upvote",
-                            tint = if (post.userVote == VoteType.UP) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            imageVector = if (post.isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                            contentDescription = "Save Plan",
+                            tint = if (post.isSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Text(
-                        text = post.score.toString(),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = if (post.userVote != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                    )
-                    IconButton(onClick = onDownvote, modifier = Modifier.size(32.dp)) {
+
+                    // Share
+                    IconButton(
+                        onClick = {
+                            val sendIntent = android.content.Intent().apply {
+                                action = android.content.Intent.ACTION_SEND
+                                putExtra(android.content.Intent.EXTRA_TEXT, "Check out this plan: ${post.title}\n${post.description}")
+                                type = "text/plain"
+                            }
+                            context.startActivity(android.content.Intent.createChooser(sendIntent, "Share Plan"))
+                        },
+                        modifier = Modifier.size(34.dp)
+                    ) {
                         Icon(
-                            imageVector = Icons.Filled.KeyboardArrowDown,
-                            contentDescription = "Downvote",
-                            tint = if (post.userVote == VoteType.DOWN) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                            imageVector = Icons.Outlined.Share,
+                            contentDescription = "Share Plan",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -623,24 +752,34 @@ private fun PostDetailHeaderCard(
                     ) {
                         Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Open in My Plans", fontWeight = FontWeight.Bold)
+                        Text("In My Plans", fontWeight = FontWeight.Bold)
                     }
                 } else {
-                    val isPaid = post.isPaid && post.creditCost > 0
                     Button(
                         onClick = onJoin,
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        enabled = !isJoining
                     ) {
-                        Icon(
-                            imageVector = if (isPaid) Icons.Outlined.Paid else Icons.Filled.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (isPaid) "Unlock (${post.creditCost} Credits)" else "Join Plan (${post.durationDays}d)",
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (isJoining) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Cloning...", fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Filled.Download,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Use This Plan",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -769,11 +908,15 @@ private fun ThreadedCommentItem(
     comment: PostComment,
     depth: Int = 0,
     parentAuthorUsername: String? = null,
+    currentUserId: String = "",
     onReplyClick: (PostComment) -> Unit,
-    onToggleLike: (String) -> Unit
+    onToggleLike: (String) -> Unit,
+    onDeleteComment: (String) -> Unit = {},
+    onReportComment: (String) -> Unit = {}
 ) {
     val haptic = LocalHapticFeedback.current
     var isExpanded by remember { mutableStateOf(false) }
+    var isSubtreeCollapsed by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -839,6 +982,14 @@ private fun ThreadedCommentItem(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
+                val detectedCommentUrl = remember(comment.content) {
+                    SmartLinkParser.findFirstUrl(comment.content)
+                }
+                val cleanCommentText = remember(comment.content) {
+                    val clean = SmartLinkParser.extractCleanText(comment.content)
+                    if (clean.isNotBlank()) clean else (detectedCommentUrl?.let { SmartLinkParser.extractDomain(it) } ?: comment.content)
+                }
+
                 // Comment Content (with highlighted @parent mention if replying)
                 if (depth > 0 && parentAuthorUsername != null) {
                     Text(
@@ -851,24 +1002,33 @@ private fun ThreadedCommentItem(
                             ) {
                                 append("@$parentAuthorUsername ")
                             }
-                            append(comment.content)
+                            append(cleanCommentText)
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 } else {
                     Text(
-                        text = comment.content,
+                        text = cleanCommentText,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
 
+                if (detectedCommentUrl != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SmartLinkCard(
+                        url = detectedCommentUrl,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Actions: Reply Button
+                // Actions: Reply Button, Delete, Report
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.padding(top = 2.dp)
                 ) {
                     Text(
@@ -884,6 +1044,35 @@ private fun ThreadedCommentItem(
                             }
                             .padding(vertical = 2.dp, horizontal = 4.dp)
                     )
+
+                    if (comment.author.userId == currentUserId) {
+                        Text(
+                            text = "Delete",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onDeleteComment(comment.commentId)
+                                }
+                                .padding(vertical = 2.dp, horizontal = 4.dp)
+                        )
+                    } else {
+                        Text(
+                            text = "Report",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    onReportComment(comment.commentId)
+                                }
+                                .padding(vertical = 2.dp, horizontal = 4.dp)
+                        )
+                    }
                 }
             }
 
@@ -918,30 +1107,114 @@ private fun ThreadedCommentItem(
             }
         }
 
-        // ── Nested Replies (Reddit-style tree line + Instagram-style collapse) ──
+        // ── Nested Replies (Interactive thread line + Instagram-style collapse) ──
         if (comment.replies.isNotEmpty()) {
             val totalReplies = comment.replies.size
             val showCollapseToggle = totalReplies > 1
+            val shouldNestRail = depth < 2
 
-            // Replies container with continuous vertical line on left (Reddit style, matching Image 2)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = if (depth == 0) 17.dp else 13.dp)
-                    .height(IntrinsicSize.Min)
-            ) {
-                // Reddit-Style vertical thread guide line
-                Box(
+            if (isSubtreeCollapsed) {
+                // Collapsed teaser (Tap rail or teaser to re-expand)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .width(1.5.dp)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
-                )
+                        .padding(start = if (depth == 0) 36.dp else 28.dp, top = 4.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            isSubtreeCollapsed = false
+                        }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = "Expand thread",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Show $totalReplies ${if (totalReplies == 1) "reply" else "replies"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            } else if (shouldNestRail) {
+                // Nested indentation with interactive 32dp continuous guide rail
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = if (depth == 0) 0.dp else 0.dp)
+                        .height(IntrinsicSize.Min)
+                ) {
+                    InteractiveCommentRail(
+                        isCollapsed = isSubtreeCollapsed,
+                        onToggleCollapse = { isSubtreeCollapsed = !isSubtreeCollapsed },
+                        touchWidth = if (depth == 0) 34.dp else 26.dp
+                    )
 
-                Spacer(modifier = Modifier.width(14.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                // Replies column
-                Column(modifier = Modifier.weight(1f)) {
+                    // Replies column
+                    Column(modifier = Modifier.weight(1f)) {
+                        val displayedReplies = if (!showCollapseToggle || isExpanded) {
+                            comment.replies
+                        } else {
+                            listOf(comment.replies.first())
+                        }
+
+                        displayedReplies.forEach { reply ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            ThreadedCommentItem(
+                                comment = reply,
+                                depth = depth + 1,
+                                parentAuthorUsername = comment.author.username.ifBlank { comment.author.displayName },
+                                currentUserId = currentUserId,
+                                onReplyClick = onReplyClick,
+                                onToggleLike = onToggleLike,
+                                onDeleteComment = onDeleteComment,
+                                onReportComment = onReportComment
+                            )
+                        }
+
+                        // Instagram-Style "View X more replies" / "Hide replies"
+                        if (showCollapseToggle) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        isExpanded = !isExpanded
+                                    }
+                                    .padding(vertical = 6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(28.dp)
+                                        .height(1.dp)
+                                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (!isExpanded) "View ${totalReplies - 1} more replies" else "Hide replies",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Indent clamped at depth >= 2 (max 3 levels of indentation: 0, 1, 2)
+                // Subsequent replies remain aligned on the same rail without squishing text
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp)
+                ) {
                     val displayedReplies = if (!showCollapseToggle || isExpanded) {
                         comment.replies
                     } else {
@@ -959,7 +1232,6 @@ private fun ThreadedCommentItem(
                         )
                     }
 
-                    // Instagram-Style "View X more replies" / "Hide replies" (circled in Image 1)
                     if (showCollapseToggle) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,

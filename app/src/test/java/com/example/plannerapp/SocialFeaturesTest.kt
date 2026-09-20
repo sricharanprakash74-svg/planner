@@ -5,7 +5,7 @@ import com.example.plannerapp.data.social.FeedFilter
 import com.example.plannerapp.data.social.InMemorySocialRepository
 import com.example.plannerapp.data.social.VoteType
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -20,21 +20,21 @@ class SocialFeaturesTest {
     }
 
     @Test
-    fun getPosts_returnsSeededPosts() = runBlocking {
+    fun getPosts_returnsSeededPosts() = runTest {
         val posts = socialRepository.getPosts().first()
         assertTrue(posts.isNotEmpty())
         assertTrue(posts.any { it.title.contains("Morning Routine") })
     }
 
     @Test
-    fun searchPosts_filtersByTitleOrTags() = runBlocking {
+    fun searchPosts_filtersByTitleOrTags() = runTest {
         val searchResults = socialRepository.getPosts(query = "Deep Work").first()
         assertEquals(1, searchResults.size)
         assertEquals("Deep Work Protocol", searchResults.first().title)
     }
 
     @Test
-    fun filterPosts_sortsByTrendingAndRecent() = runBlocking {
+    fun filterPosts_sortsByTrendingAndRecent() = runTest {
         val trending = socialRepository.getPosts(filter = FeedFilter.TRENDING).first()
         val recent = socialRepository.getPosts(filter = FeedFilter.RECENT).first()
         assertNotNull(trending)
@@ -42,7 +42,7 @@ class SocialFeaturesTest {
     }
 
     @Test
-    fun votePost_incrementsAndTogglesScore() = runBlocking {
+    fun votePost_incrementsAndTogglesScore() = runTest {
         val initialPosts = socialRepository.getPosts().first()
         val targetPost = initialPosts.first()
         val initialScore = targetPost.score
@@ -59,7 +59,7 @@ class SocialFeaturesTest {
     }
 
     @Test
-    fun addComment_createsTopLevelAndNestedReplies() = runBlocking {
+    fun addComment_createsTopLevelAndNestedReplies() = runTest {
         val post = socialRepository.getPosts().first().first()
         val author = CloudUser(
             userId = "test_user_1",
@@ -95,7 +95,7 @@ class SocialFeaturesTest {
     }
 
     @Test
-    fun createPost_addsNewPostToFeed() = runBlocking {
+    fun createPost_addsNewPostToFeed() = runTest {
         val author = CloudUser(
             userId = "creator_1",
             username = "lead_creator",

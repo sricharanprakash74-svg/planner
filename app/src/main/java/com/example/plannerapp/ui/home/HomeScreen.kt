@@ -1,20 +1,44 @@
 package com.example.plannerapp.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import com.example.plannerapp.theme.PhysicsSpec
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -40,6 +64,7 @@ import com.example.plannerapp.credits.CreditViewModel
 import com.example.plannerapp.credits.CreditHubSheet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,12 +84,24 @@ import com.example.plannerapp.theme.AppDimens
 import com.example.plannerapp.ui.components.DurationPickerDialog
 import com.example.plannerapp.ui.components.DurationPickerRow
 import com.example.plannerapp.ui.components.PlanCardSkeleton
+import com.example.plannerapp.data.social.FeedFilter
+import com.example.plannerapp.data.social.VoteType
+import com.example.plannerapp.ui.explore.CreatorSearchResultCard
+import com.example.plannerapp.ui.explore.SocialFeedPostCard
 import com.example.plannerapp.ui.social.PublishPlanDialog
 import com.example.plannerapp.ui.state.Resource
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+
+enum class HomeFeedTab(val label: String) {
+    FOR_YOU("For You"),
+    FOLLOWING("Following"),
+    MY_PLANS("My Plans"),
+    POPULAR("Popular"),
+    RECENT("Recent")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,27 +118,33 @@ fun HomeScreen(
     creditViewModel: CreditViewModel? = null,
     feedViewModel: com.example.plannerapp.ui.social.CommunityFeedViewModel? = null,
     onNavigateToDiscussion: (String) -> Unit = {},
+    onPostClick: (String) -> Unit = {},
+    onCreatorClick: (String) -> Unit = {},
     onCreatorMonetizationClick: () -> Unit = {},
     onBecomeCreatorClick: () -> Unit = {},
+    onNotificationsClick: () -> Unit = {},
+    onConversationsClick: () -> Unit = {},
+    onMenuClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isOnline = com.example.plannerapp.data.LocalIsOnline.current
-    val uiStateResource by viewModel.uiState.collectAsState()
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val uiStateResource by viewModel.uiState.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    val activeUser = creditViewModel?.activeUserFlow?.collectAsState()?.value
+    val activeUser = creditViewModel?.activeUserFlow?.collectAsStateWithLifecycle()?.value
     val isCreator = activeUser?.isCreator == true
 
     val creditBalance = if (creditViewModel != null) {
-        creditViewModel.balanceFlow.collectAsState().value
+        creditViewModel.balanceFlow.collectAsStateWithLifecycle().value
     } else 0
 
     val availableFreezes = if (creditViewModel != null) {
-        creditViewModel.freezesFlow.collectAsState().value
+        creditViewModel.freezesFlow.collectAsStateWithLifecycle().value
     } else 0
 
     var showCreditHubSheet by remember { mutableStateOf(false) }
+    var showCreatorWaitlistSheet by remember { mutableStateOf(false) }
     var showProDialog by remember { mutableStateOf(false) }
     var isPlannerProExpanded by remember { mutableStateOf(true) }
     var isResourcesExpanded by remember { mutableStateOf(true) }
@@ -109,6 +152,52 @@ fun HomeScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
+    val searchFocusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(isSearchActive) {
+        if (isSearchActive) {
+            searchFocusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.uiEvents.collect { event ->
+            when (event) {
+                is HomeUiEvent.ShowSnackbar -> {
+                    coroutineScope.launch {
+                        val result = snackbarHostState.showSnackbar(
+                            message = event.message,
+                            actionLabel = event.actionLabel,
+                            duration = SnackbarDuration.Short
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            event.onAction?.invoke()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    var selectedFeedTab by remember { mutableStateOf(HomeFeedTab.MY_PLANS) }
+    val activeFeedTab = if (isOnline) selectedFeedTab else HomeFeedTab.MY_PLANS
+    val feedUiState by (feedViewModel?.uiState?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(com.example.plannerapp.ui.social.CommunityFeedUiState()) })
+
+    LaunchedEffect(selectedFeedTab, isOnline) {
+        if (isOnline && feedViewModel != null) {
+            when (selectedFeedTab) {
+                HomeFeedTab.FOR_YOU -> feedViewModel.onFilterSelected(FeedFilter.TRENDING)
+                HomeFeedTab.FOLLOWING -> feedViewModel.onFilterSelected(FeedFilter.FOLLOWING)
+                HomeFeedTab.POPULAR -> feedViewModel.onFilterSelected(FeedFilter.MOST_DOWNLOADED)
+                HomeFeedTab.RECENT -> feedViewModel.onFilterSelected(FeedFilter.RECENT)
+                HomeFeedTab.MY_PLANS -> {}
+            }
+        }
+    }
+
     var showCreateDialog by remember { mutableStateOf(false) }
     var planToEdit by remember { mutableStateOf<PlanEntity?>(null) }
     var planToDelete by remember { mutableStateOf<PlanEntity?>(null) }
@@ -121,682 +210,313 @@ fun HomeScreen(
     var selectedPlanIds by remember { mutableStateOf(setOf<Long>()) }
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
 
-    val uiState = when (val state = uiStateResource) {
-        is Resource.Loading -> {
-            if (!isOnline && feedViewModel != null) return // Will render below if offline anyway
-            // Skeleton loader — preserves layout, no blocking spinner
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                contentPadding = PaddingValues(AppDimens.Space16),
-                horizontalArrangement = Arrangement.spacedBy(AppDimens.Space16),
-                verticalArrangement = Arrangement.spacedBy(AppDimens.Space16),
-                modifier = modifier.fillMaxSize()
-            ) {
-                items(4) { PlanCardSkeleton() }
-            }
-            return
-        }
-        is Resource.Error -> {
-            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Error: ${state.message}", color = MaterialTheme.colorScheme.error)
-            }
-            return
-        }
-        is Resource.Success -> state.data
-    }
+    val allPlans = (uiStateResource as? Resource.Success)?.data?.plans ?: emptyList()
 
-    val filteredPlans = remember(uiState.plans, searchQuery) {
+    val filteredPlans = remember(allPlans, searchQuery) {
         if (searchQuery.isBlank()) {
-            uiState.plans
+            allPlans
         } else {
-            uiState.plans.filter {
+            allPlans.filter {
                 it.heading.contains(searchQuery, ignoreCase = true) ||
                 it.description.contains(searchQuery, ignoreCase = true)
             }
         }
     }
 
-    val pinnedPlans = remember(uiState.plans) {
-        uiState.plans.filter { it.isPinned }
+    val pinnedPlans = remember(allPlans) {
+        allPlans.filter { it.isPinned }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(
-                modifier = Modifier.width(310.dp),
-                drawerContainerColor = MaterialTheme.colorScheme.surface
-            ) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 16.dp)
-                ) {
-                    // Header Brand
-                    item {
-                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Folder,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = "PlannerApp",
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        if (isCreator) {
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Outlined.Verified,
-                                                        contentDescription = "Verified Creator",
-                                                        tint = MaterialTheme.colorScheme.primary,
-                                                        modifier = Modifier.size(12.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(3.dp))
-                                                    Text(
-                                                        text = "Creator",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.primary
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Text(
-                                        text = "${uiState.plans.size} Active Plans",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            if (isSelectionMode) {
+                TopAppBar(
+                    title = { Text("${selectedPlanIds.size} Selected", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            isSelectionMode = false
+                            selectedPlanIds = emptySet()
+                        }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Exit Selection")
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-
-                    // ── Recently Visited (Image 2 style) ────────────────
-                    if (uiState.plans.isNotEmpty()) {
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Recently Visited",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                TextButton(
-                                    onClick = { showAllRecentPlans = !showAllRecentPlans },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                                ) {
-                                    Text(
-                                        text = if (showAllRecentPlans) "Show less" else "See all",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
-
-                        val recentList = if (showAllRecentPlans) uiState.plans else uiState.plans.take(3)
-                        items(recentList, key = { "recent_${it.planId}" }) { plan ->
-                            val colorSeed = (plan.heading.hashCode() and 0x7FFFFFFF) % 4
-                            val avatarColor = when (colorSeed) {
-                                0 -> Color(0xFFE53935)
-                                1 -> Color(0xFF1E88E5)
-                                2 -> Color(0xFF43A047)
-                                else -> Color(0xFFFB8C00)
-                            }
-                            NavigationDrawerItem(
-                                label = {
-                                    Text(
-                                        text = plan.heading,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                },
-                                icon = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .clip(CircleShape)
-                                            .background(avatarColor),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = plan.heading.firstOrNull()?.uppercase() ?: "P",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                    }
-                                },
-                                selected = false,
-                                onClick = {
-                                    coroutineScope.launch { drawerState.close() }
-                                    onPlanClick(plan.planId)
-                                },
-                                modifier = Modifier.padding(horizontal = 12.dp)
-                            )
-                        }
-
-                        item {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                            Spacer(modifier = Modifier.height(4.dp))
-                        }
-                    }
-
-                    // ── Planner Pro Section (Image 1 style) ───────────────
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { isPlannerProExpanded = !isPlannerProExpanded }
-                                .padding(horizontal = 20.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Planner Pro",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Icon(
-                                imageVector = if (isPlannerProExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    if (isPlannerProExpanded) {
-                        item {
-                            NavigationDrawerItem(
-                                label = { Text("Try Planner Pro", fontWeight = FontWeight.Medium) },
-                                icon = { Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null) },
-                                selected = false,
-                                onClick = {
-                                    coroutineScope.launch { drawerState.close() }
-                                    showProDialog = true
-                                },
-                                modifier = Modifier.padding(horizontal = 12.dp)
-                            )
-                        }
-                    }
-
-                    item {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-
-                    // ── Resources Section (Image 1 style) ─────────────────
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { isResourcesExpanded = !isResourcesExpanded }
-                                .padding(horizontal = 20.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Resources",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Icon(
-                                imageVector = if (isResourcesExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    if (isResourcesExpanded) {
-                        item {
-                            NavigationDrawerItem(
-                                label = {
-                                    Column {
-                                        Text("Planner Premium", fontWeight = FontWeight.Medium)
-                                        Text(
-                                            "Ads-free & unlimited cloud sync",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                },
-                                icon = { Icon(Icons.Outlined.Shield, contentDescription = null) },
-                                selected = false,
-                                onClick = {
-                                    coroutineScope.launch { drawerState.close() }
-                                    showProDialog = true
-                                },
-                                modifier = Modifier.padding(horizontal = 12.dp)
-                            )
-
-                            NavigationDrawerItem(
-                                label = {
-                                    Column {
-                                        Text("Earn", fontWeight = FontWeight.Medium)
-                                        Text(
-                                            "Earn credits on PlannerApp",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                },
-                                icon = { Icon(Icons.Outlined.Token, contentDescription = null) },
-                                selected = false,
-                                onClick = {
-                                    coroutineScope.launch { drawerState.close() }
-                                    showCreditHubSheet = true
-                                },
-                                modifier = Modifier.padding(horizontal = 12.dp)
-                            )
-
-                            NavigationDrawerItem(
-                                label = {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column {
-                                            Text("Planner Store", fontWeight = FontWeight.Medium)
-                                            Text(
-                                                "Get credits & streak freezes",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .size(8.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFFFF5722))
-                                        )
-                                    }
-                                },
-                                icon = { Icon(Icons.Outlined.Storefront, contentDescription = null) },
-                                selected = false,
-                                onClick = {
-                                    coroutineScope.launch { drawerState.close() }
-                                    showCreditHubSheet = true
-                                },
-                                modifier = Modifier.padding(horizontal = 12.dp)
-                            )
-                        }
-                    }
-
-                    item {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-
-                    // ── Creator Section ──────────────────────────────────
-                    item {
-                        Text(
-                            text = if (isCreator) "Creator Studio" else "Creator Program",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                        )
-
-                        if (isCreator) {
-                            NavigationDrawerItem(
-                                label = {
-                                    Column {
-                                        Text("Monetization & Payouts", fontWeight = FontWeight.SemiBold)
-                                        Text(
-                                            "70% earnings split & cash-outs",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                },
-                                icon = {
-                                    Icon(
-                                        imageVector = Icons.Outlined.MonetizationOn,
-                                        contentDescription = null,
-                                        tint = Color(0xFF2E7D32)
-                                    )
-                                },
-                                selected = false,
-                                onClick = {
-                                    coroutineScope.launch { drawerState.close() }
-                                    onCreatorMonetizationClick()
-                                },
-                                modifier = Modifier.padding(horizontal = 12.dp)
-                            )
-                        } else {
-                            NavigationDrawerItem(
-                                label = {
-                                    Column {
-                                        Text("Become a Creator", fontWeight = FontWeight.SemiBold)
-                                        Text(
-                                            "Monetize plans & earn credits",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                },
-                                icon = {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Star,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                },
-                                selected = false,
-                                onClick = {
-                                    coroutineScope.launch { drawerState.close() }
-                                    onBecomeCreatorClick()
-                                },
-                                modifier = Modifier.padding(horizontal = 12.dp)
-                            )
-                        }
-                    }
-
-                    item {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-
-                    // ── Discover & Feeds ──────────────────────────────────
-                    item {
-                        if (isOnline) {
-                            Text(
-                                text = "Discover & Feeds",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                            )
-
-                            NavigationDrawerItem(
-                                label = { Text("Popular & Community Plans", fontWeight = FontWeight.SemiBold) },
-                                icon = { Icon(Icons.Outlined.Explore, contentDescription = null) },
-                                selected = false,
-                                onClick = {
-                                    coroutineScope.launch { drawerState.close() }
-                                    onExploreClick("")
-                                },
-                                modifier = Modifier.padding(horizontal = 12.dp)
-                            )
-                        }
-
-                        NavigationDrawerItem(
-                            label = { Text("Performance & Stock Graph", fontWeight = FontWeight.SemiBold) },
-                            icon = { Icon(Icons.AutoMirrored.Outlined.TrendingUp, contentDescription = null) },
-                            selected = false,
-                            onClick = {
-                                coroutineScope.launch { drawerState.close() }
-                                onAnalyticsClick()
-                            },
-                            modifier = Modifier.padding(horizontal = 12.dp)
-                        )
-                    }
-
-                    // Pinned Plans Section (if any)
-                    if (pinnedPlans.isNotEmpty()) {
-                        item {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Text(
-                                text = "Pinned Plans",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                            )
-                        }
-
-                        items(pinnedPlans, key = { "pinned_${it.planId}" }) { plan ->
-                            NavigationDrawerItem(
-                                label = {
-                                    Text(
-                                        text = plan.heading,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                },
-                                icon = {
-                                    Icon(
-                                        imageVector = Icons.Filled.PushPin,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                },
-                                selected = false,
-                                onClick = {
-                                    coroutineScope.launch { drawerState.close() }
-                                    onPlanClick(plan.planId)
-                                },
-                                modifier = Modifier.padding(horizontal = 12.dp)
-                            )
-                        }
-                    }
-
-                    // Preferences
-                    item {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Preferences",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                        )
-
-                        NavigationDrawerItem(
-                            label = { Text("Settings", fontWeight = FontWeight.SemiBold) },
-                            icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-                            selected = false,
-                            onClick = {
-                                coroutineScope.launch { drawerState.close() }
-                                onSettingsClick()
-                            },
-                            modifier = Modifier.padding(horizontal = 12.dp)
-                        )
-                    }
-                }
-            }
-        }
-    ) {
-        Scaffold(
-            modifier = modifier,
-            topBar = {
-                if (isSelectionMode) {
-                    TopAppBar(
-                        title = { Text("${selectedPlanIds.size} Selected", fontWeight = FontWeight.Bold) },
-                        navigationIcon = {
+                    },
+                    actions = {
+                        if (selectedPlanIds.isNotEmpty()) {
                             IconButton(onClick = {
+                                viewModel.batchPinPlans(selectedPlanIds.toList(), true)
                                 isSelectionMode = false
                                 selectedPlanIds = emptySet()
                             }) {
-                                Icon(Icons.Filled.Close, contentDescription = "Exit Selection")
+                                Icon(Icons.Filled.PushPin, contentDescription = "Pin Selected")
                             }
-                        },
-                        actions = {
-                            if (selectedPlanIds.isNotEmpty()) {
-                                IconButton(onClick = {
-                                    viewModel.batchPinPlans(selectedPlanIds.toList(), true)
-                                    isSelectionMode = false
-                                    selectedPlanIds = emptySet()
-                                }) {
-                                    Icon(Icons.Filled.PushPin, contentDescription = "Pin Selected")
-                                }
-                                IconButton(onClick = { showBatchDeleteDialog = true }) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Delete Selected", tint = MaterialTheme.colorScheme.error)
-                                }
+                            IconButton(onClick = { showBatchDeleteDialog = true }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete Selected", tint = MaterialTheme.colorScheme.error)
                             }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                    )
-                } else {
-                    // WhatsApp-style Minimalist Top Bar
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp
-                    ) {
-                        Column {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                )
+            } else {
+                // WhatsApp-style Minimalist Top Bar
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp
+                ) {
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Menu Icon (smoothly animates out when search is active)
+                            AnimatedVisibility(
+                                visible = !isSearchActive,
+                                enter = fadeIn(tween(250)) + expandHorizontally(tween(250, easing = FastOutSlowInEasing)),
+                                exit = fadeOut(tween(200)) + shrinkHorizontally(tween(200, easing = FastOutSlowInEasing))
                             ) {
-                                if (isSearchActive) {
-                                    // WhatsApp-style active search bar
-                                    IconButton(
-                                        onClick = {
-                                            isSearchActive = false
-                                            searchQuery = ""
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = "Close Search",
-                                            tint = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-
-                                    TextField(
-                                        value = searchQuery,
-                                        onValueChange = { searchQuery = it },
-                                        placeholder = {
-                                            Text(
-                                                text = if (isOnline) "Search community plans..." else "Search local plans...",
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        },
-                                        colors = TextFieldDefaults.colors(
-                                            focusedContainerColor = Color.Transparent,
-                                            unfocusedContainerColor = Color.Transparent,
-                                            disabledContainerColor = Color.Transparent,
-                                            focusedIndicatorColor = Color.Transparent,
-                                            unfocusedIndicatorColor = Color.Transparent
-                                        ),
-                                        singleLine = true,
-                                        modifier = Modifier.weight(1f)
+                                IconButton(
+                                    onClick = onMenuClick,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Menu,
+                                        contentDescription = "Main Menu",
+                                        tint = MaterialTheme.colorScheme.onSurface
                                     )
+                                }
+                            }
 
-                                    if (searchQuery.isNotBlank()) {
-                                        IconButton(onClick = { searchQuery = "" }) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Close,
-                                                contentDescription = "Clear",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    // WhatsApp-style header: Menu + Brand Title + Actions
-                                    IconButton(
-                                        onClick = { coroutineScope.launch { drawerState.open() } }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Menu,
-                                            contentDescription = "Main Menu",
-                                            tint = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
+                                if (!isSearchActive) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                }
 
-                                    Spacer(modifier = Modifier.width(4.dp))
-
-                                    Text(
-                                        text = "Planner",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-
-                                    Spacer(modifier = Modifier.weight(1f))
-
-                                    if (!isOnline) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.CloudOff,
-                                            contentDescription = "Offline Mode",
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                    }
-
-                                    IconButton(onClick = { isSearchActive = true }) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Search,
-                                            contentDescription = "Search",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-
-                                    if (creditViewModel != null) {
-                                        Spacer(modifier = Modifier.width(6.dp))
-
-                                        // Plain Minimalist Credit Badge: No diamond icon, no separate freezes pill
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                            border = BorderStroke(
-                                                1.dp,
-                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                                            ),
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .clickable { showCreditHubSheet = true }
+                                // Animated Search Bar (Compact when inactive, expands to fill top bar when active)
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (isSearchActive) MaterialTheme.colorScheme.surface else Color(0xFFF0F0F5),
+                                    border = if (isSearchActive) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)) else null,
+                                    shadowElevation = if (isSearchActive) 2.dp else 0.dp,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
+                                        .animateContentSize(animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing))
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
                                         ) {
+                                            if (!isSearchActive) {
+                                                isSearchActive = true
+                                            }
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = "Search",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        if (isSearchActive) {
+                                            BasicTextField(
+                                                value = searchQuery,
+                                                onValueChange = {
+                                                    searchQuery = it
+                                                    if (isOnline) {
+                                                        feedViewModel?.onSearchQueryChanged(it)
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .focusRequester(searchFocusRequester),
+                                                singleLine = true,
+                                                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                ),
+                                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                                decorationBox = { innerTextField ->
+                                                    if (searchQuery.isEmpty()) {
+                                                        Text(
+                                                            text = "Search plans, people...",
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                        )
+                                                    }
+                                                    innerTextField()
+                                                }
+                                            )
+
+                                            if (searchQuery.isNotBlank()) {
+                                                IconButton(
+                                                    onClick = {
+                                                        searchQuery = ""
+                                                        if (isOnline && activeFeedTab != HomeFeedTab.MY_PLANS) {
+                                                            feedViewModel?.onSearchQueryChanged("")
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Close,
+                                                        contentDescription = "Clear",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        } else {
                                             Text(
-                                                text = "$creditBalance cr",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                                                text = "Search plans, people...",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
                                             )
                                         }
+                                    }
+                                }
+
+                                // Navigation Icons (Credits, Bell, Mail - visible when not active)
+                                AnimatedVisibility(
+                                    visible = !isSearchActive,
+                                    enter = fadeIn(tween(250)) + expandHorizontally(tween(250, easing = FastOutSlowInEasing)),
+                                    exit = fadeOut(tween(200)) + shrinkHorizontally(tween(200, easing = FastOutSlowInEasing))
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(start = 6.dp)
+                                    ) {
+                                        if (isOnline) {
+                                            val creditInteraction = remember { MutableInteractionSource() }
+                                            val isCreditPressed by creditInteraction.collectIsPressedAsState()
+                                            val creditScale by animateFloatAsState(
+                                                targetValue = if (isCreditPressed) 0.92f else 1f,
+                                                animationSpec = if (isCreditPressed) PhysicsSpec.PressDown else PhysicsSpec.PressRelease,
+                                                label = "credit_pill_scale"
+                                            )
+
+                                            Surface(
+                                                shape = RoundedCornerShape(20.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                                border = BorderStroke(
+                                                    1.dp,
+                                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                                ),
+                                                modifier = Modifier
+                                                    .graphicsLayer {
+                                                        scaleX = creditScale
+                                                        scaleY = creditScale
+                                                    }
+                                                    .clip(RoundedCornerShape(20.dp))
+                                                    .clickable(
+                                                        interactionSource = creditInteraction,
+                                                        indication = null
+                                                    ) { showCreditHubSheet = true }
+                                            ) {
+                                                Text(
+                                                    text = "$creditBalance cr",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.width(4.dp))
+
+                                            val notifInteraction = remember { MutableInteractionSource() }
+                                            val isNotifPressed by notifInteraction.collectIsPressedAsState()
+                                            val notifScale by animateFloatAsState(
+                                                targetValue = if (isNotifPressed) 0.88f else 1f,
+                                                animationSpec = if (isNotifPressed) PhysicsSpec.PressDown else PhysicsSpec.PressRelease,
+                                                label = "notif_scale"
+                                            )
+                                            IconButton(
+                                                onClick = onNotificationsClick,
+                                                interactionSource = notifInteraction,
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .graphicsLayer {
+                                                        scaleX = notifScale
+                                                        scaleY = notifScale
+                                                    }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Notifications,
+                                                    contentDescription = "Notifications",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+
+                                            val convInteraction = remember { MutableInteractionSource() }
+                                            val isConvPressed by convInteraction.collectIsPressedAsState()
+                                            val convScale by animateFloatAsState(
+                                                targetValue = if (isConvPressed) 0.88f else 1f,
+                                                animationSpec = if (isConvPressed) PhysicsSpec.PressDown else PhysicsSpec.PressRelease,
+                                                label = "conv_scale"
+                                            )
+                                            IconButton(
+                                                onClick = onConversationsClick,
+                                                interactionSource = convInteraction,
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .graphicsLayer {
+                                                        scaleX = convScale
+                                                        scaleY = convScale
+                                                    }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Email,
+                                                    contentDescription = "Direct Messages",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Trailing "Cancel" TextButton (slides in from right when active)
+                                AnimatedVisibility(
+                                    visible = isSearchActive,
+                                    enter = slideInHorizontally(
+                                        initialOffsetX = { it },
+                                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                                    ) + fadeIn(tween(250)),
+                                    exit = slideOutHorizontally(
+                                        targetOffsetX = { it },
+                                        animationSpec = tween(200, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(tween(200))
+                                ) {
+                                    TextButton(
+                                        onClick = {
+                                            searchQuery = ""
+                                            isSearchActive = false
+                                            focusManager.clearFocus()
+                                            keyboardController?.hide()
+                                            if (isOnline && activeFeedTab != HomeFeedTab.MY_PLANS) {
+                                                feedViewModel?.onSearchQueryChanged("")
+                                            }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "Cancel",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
                                     }
                                 }
                             }
@@ -809,19 +529,8 @@ fun HomeScreen(
                     }
                 }
             },
-            floatingActionButton = {
-                if (!isSelectionMode) {
-                    FloatingActionButton(
-                        onClick = { showCreateDialog = true },
-                        shape = RoundedCornerShape(16.dp),
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp)
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = "Create Plan")
-                    }
-                }
-            },
+            floatingActionButton = {},
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             containerColor = MaterialTheme.colorScheme.background
         ) { paddingValues ->
             Column(
@@ -829,140 +538,426 @@ fun HomeScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                if (isOnline && feedViewModel != null) {
-                    com.example.plannerapp.ui.explore.ExploreScreen(
-                        viewModel = feedViewModel,
-                        onPostClick = { postId -> onNavigateToDiscussion(postId) },
-                        onCreatorClick = {}
-                    )
-                } else {
-                    if (filteredPlans.isEmpty()) {
-                        Box(
+                if (isOnline && !isSearchActive) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                    ) {
+                        Row(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp), 
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                        if (searchQuery.isNotBlank()) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Filled.Search,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(48.dp)
+                            val tabHaptic = LocalHapticFeedback.current
+                            HomeFeedTab.entries.forEach { tab ->
+                                val isSelected = activeFeedTab == tab
+                                val tabInteraction = remember { MutableInteractionSource() }
+                                val isTabPressed by tabInteraction.collectIsPressedAsState()
+                                val tabScale by animateFloatAsState(
+                                    targetValue = if (isTabPressed) 0.92f else 1f,
+                                    animationSpec = if (isTabPressed) PhysicsSpec.PressDown else PhysicsSpec.PressRelease,
+                                    label = "tab_scale_${tab.name}"
                                 )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "No plans matching \"$searchQuery\"",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                val tabBgColor by androidx.compose.animation.animateColorAsState(
+                                    targetValue = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
+                                    animationSpec = androidx.compose.animation.core.tween(180),
+                                    label = "tab_bg_${tab.name}"
                                 )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "Try searching for another keyword or check community plans.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
+                                val tabTextColor by androidx.compose.animation.animateColorAsState(
+                                    targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    animationSpec = androidx.compose.animation.core.tween(180),
+                                    label = "tab_text_${tab.name}"
                                 )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                OutlinedButton(onClick = { searchQuery = "" }) {
-                                    Text("Clear Search")
+
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(32.dp)
+                                        .graphicsLayer {
+                                            scaleX = tabScale
+                                            scaleY = tabScale
+                                        }
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable(
+                                            interactionSource = tabInteraction,
+                                            indication = null
+                                        ) {
+                                            tabHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            selectedFeedTab = tab
+                                        },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = tabBgColor,
+                                    shadowElevation = if (isSelected) 1.5.dp else 0.dp,
+                                    border = if (isSelected) BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)) else null
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                        Text(
+                                            text = tab.label,
+                                            style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.5.sp),
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = tabTextColor
+                                        )
+                                    }
                                 }
                             }
-                        } else {
-                            Card(
-                                shape = RoundedCornerShape(AppDimens.CornerCard),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.padding(AppDimens.Space24)
+                        }
+                    }
+                }
+
+                if (activeFeedTab == HomeFeedTab.MY_PLANS || !isOnline) {
+                when (val state = uiStateResource) {
+                    is Resource.Loading -> {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            contentPadding = PaddingValues(AppDimens.Space16),
+                            horizontalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                            verticalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(4) { index -> 
+                                com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                                    PlanCardSkeleton() 
+                                }
+                            }
+                        }
+                    }
+                    is Resource.Error -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("Error: ${state.message}", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    is Resource.Success -> {
+                        if (filteredPlans.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(24.dp), 
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primaryContainer,
-                                        modifier = Modifier.size(AppDimens.IconBoxLg)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
+                                    if (searchQuery.isNotBlank()) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Icon(
-                                                imageVector = Icons.Outlined.Checklist,
+                                                imageVector = Icons.Filled.Search,
                                                 contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(AppDimens.IconSizeXl)
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                modifier = Modifier.size(48.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Text(
+                                                text = "No plans matching \"$searchQuery\"",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "Try searching for another keyword or check community plans.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                OutlinedButton(onClick = { searchQuery = "" }) {
+                                                    Text("Clear Search")
+                                                }
+                                                if (isOnline) {
+                                                    Button(onClick = { selectedFeedTab = HomeFeedTab.FOR_YOU }) {
+                                                        Text("Search Community")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        Card(
+                                            shape = RoundedCornerShape(AppDimens.CornerCard),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                modifier = Modifier.padding(AppDimens.Space24)
+                                            ) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                                    modifier = Modifier.size(AppDimens.IconBoxLg)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Outlined.Checklist,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(AppDimens.IconSizeXl)
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(AppDimens.Space16))
+                                                Text(
+                                                    text = "Your Journey Starts Here",
+                                                    style = MaterialTheme.typography.titleLarge,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.height(AppDimens.Space8))
+                                                Text(
+                                                    text = "Create your first routine, challenge, or project plan to start building unstoppable daily habits.",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                                Spacer(modifier = Modifier.height(AppDimens.Space20))
+                                                Button(
+                                                    onClick = { showCreateDialog = true },
+                                                    shape = RoundedCornerShape(AppDimens.CornerCompact)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Add,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(AppDimens.IconSizeMd)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(AppDimens.Space8))
+                                                    Text("Create Your First Plan", fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                LazyVerticalGrid(
+                                    columns = GridCells.Fixed(2),
+                                    contentPadding = PaddingValues(AppDimens.Space16),
+                                    horizontalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                                    verticalArrangement = Arrangement.spacedBy(AppDimens.Space16)
+                                ) {
+                                    itemsIndexed(filteredPlans, key = { _, it -> it.planId }) { index, plan ->
+                                        val isSelected = selectedPlanIds.contains(plan.planId)
+                                        com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                                            PlanFolderCard(
+                                                plan = plan, 
+                                                isSelectionMode = isSelectionMode,
+                                                isSelected = isSelected,
+                                                onClick = { 
+                                                    if (isSelectionMode) {
+                                                        selectedPlanIds = if (isSelected) selectedPlanIds - plan.planId else selectedPlanIds + plan.planId
+                                                    } else {
+                                                        onPlanClick(plan.planId)
+                                                    }
+                                                },
+                                                onLongClick = {
+                                                    if (isSelectionMode) {
+                                                        selectedPlanIds = if (isSelected) selectedPlanIds - plan.planId else selectedPlanIds + plan.planId
+                                                    } else {
+                                                        planForActions = plan
+                                                    }
+                                                },
+                                                onEdit = { planToEdit = plan },
+                                                onDelete = { planToDelete = plan },
+                                                onInfo = { planForInfo = plan },
+                                                onTogglePin = { viewModel.togglePinPlan(plan.planId, !plan.isPinned) }
                                             )
                                         }
                                     }
-                                    Spacer(modifier = Modifier.height(AppDimens.Space16))
-                                    Text(
-                                        text = "Your Journey Starts Here",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Spacer(modifier = Modifier.height(AppDimens.Space8))
-                                    Text(
-                                        text = "Create your first routine, challenge, or project plan to start building unstoppable daily habits.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(modifier = Modifier.height(AppDimens.Space20))
-                                    Button(
-                                        onClick = { showCreateDialog = true },
-                                        shape = RoundedCornerShape(AppDimens.CornerCompact)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Add,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(AppDimens.IconSizeMd)
-                                        )
-                                        Spacer(modifier = Modifier.width(AppDimens.Space8))
-                                        Text("Create Your First Plan", fontWeight = FontWeight.Bold)
+
+                                    if (isOnline) {
+                                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = MaterialTheme.colorScheme.surface,
+                                                tonalElevation = 1.dp,
+                                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 8.dp)
+                                                    .clickable { onExploreClick("") }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(14.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Surface(
+                                                            shape = CircleShape,
+                                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                                            modifier = Modifier.size(36.dp)
+                                                        ) {
+                                                            Box(contentAlignment = Alignment.Center) {
+                                                                Icon(
+                                                                    imageVector = Icons.Outlined.Explore,
+                                                                    contentDescription = null,
+                                                                    tint = MaterialTheme.colorScheme.primary,
+                                                                    modifier = Modifier.size(20.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                        Spacer(modifier = Modifier.width(12.dp))
+                                                        Column {
+                                                            Text(
+                                                                text = "Explore Community Routines",
+                                                                style = MaterialTheme.typography.titleSmall,
+                                                                fontWeight = FontWeight.SemiBold
+                                                            )
+                                                            Text(
+                                                                text = "Discover proven habits and plans from creators",
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
+                                                        contentDescription = "Explore",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(AppDimens.Space16),
-                        horizontalArrangement = Arrangement.spacedBy(AppDimens.Space16),
-                        verticalArrangement = Arrangement.spacedBy(AppDimens.Space16)
-                    ) {
-                        items(filteredPlans, key = { it.planId }) { plan ->
-                            val isSelected = selectedPlanIds.contains(plan.planId)
-                            PlanFolderCard(
-                                plan = plan, 
-                                isSelectionMode = isSelectionMode,
-                                isSelected = isSelected,
-                                onClick = { 
-                                    if (isSelectionMode) {
-                                        selectedPlanIds = if (isSelected) selectedPlanIds - plan.planId else selectedPlanIds + plan.planId
-                                    } else {
-                                        onPlanClick(plan.planId)
+                    if (feedUiState.isSearching) {
+                        val searchResults = feedUiState.searchResults
+                        val hasPlans = searchResults.plans.isNotEmpty()
+                        val hasUsers = searchResults.creators.isNotEmpty()
+
+                        if (!hasPlans && !hasUsers) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.SearchOff,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "No results found for \"$searchQuery\"",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                contentPadding = PaddingValues(AppDimens.Space16),
+                                verticalArrangement = Arrangement.spacedBy(AppDimens.Space12),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                if (hasPlans) {
+                                    item(key = "header_plans") {
+                                        Text(
+                                            text = "PLANS (${searchResults.plans.size})",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            letterSpacing = 0.5.sp
+                                        )
                                     }
-                                },
-                                onLongClick = {
-                                    if (isSelectionMode) {
-                                        selectedPlanIds = if (isSelected) selectedPlanIds - plan.planId else selectedPlanIds + plan.planId
-                                    } else {
-                                        planForActions = plan
+                                    itemsIndexed(searchResults.plans, key = { _, plan -> "search_plan_${plan.postId}" }) { index, post ->
+                                        com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                                            SocialFeedPostCard(
+                                                post = post,
+                                                onUpvote = { feedViewModel?.onVote(post.postId, VoteType.UP) },
+                                                onDownvote = { feedViewModel?.onVote(post.postId, VoteType.DOWN) },
+                                                onSaveToggle = { feedViewModel?.onToggleSave(post.postId) },
+                                                onClick = { onPostClick(post.postId) },
+                                                onCreatorClick = { onCreatorClick(post.author.userId) }
+                                            )
+                                        }
                                     }
-                                },
-                                onEdit = { planToEdit = plan },
-                                onDelete = { planToDelete = plan },
-                                onInfo = { planForInfo = plan },
-                                onTogglePin = { viewModel.togglePinPlan(plan.planId, !plan.isPinned) }
-                            )
+                                }
+                                if (hasUsers) {
+                                    item(key = "header_users") {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "USERS (${searchResults.creators.size})",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            letterSpacing = 0.5.sp
+                                        )
+                                    }
+                                    itemsIndexed(searchResults.creators, key = { _, user -> "search_user_${user.userId}" }) { index, creator ->
+                                        com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                                            CreatorSearchResultCard(
+                                                creator = creator,
+                                                isFollowing = feedUiState.followingUserIds.contains(creator.userId),
+                                                onToggleFollow = { feedViewModel?.onToggleFollow(creator.userId) },
+                                                onClick = { onCreatorClick(creator.userId) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (feedUiState.posts.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Explore,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = if (activeFeedTab == HomeFeedTab.FOLLOWING)
+                                        "You are not following any creators yet. Follow creators to see their public plans here."
+                                    else "No community posts yet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(AppDimens.Space16),
+                            verticalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            itemsIndexed(feedUiState.posts, key = { _, post -> post.postId }) { index, post ->
+                                com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                                    SocialFeedPostCard(
+                                        post = post,
+                                        onUpvote = { feedViewModel?.onVote(post.postId, VoteType.UP) },
+                                        onDownvote = { feedViewModel?.onVote(post.postId, VoteType.DOWN) },
+                                        onSaveToggle = { feedViewModel?.onToggleSave(post.postId) },
+                                        onClick = { onPostClick(post.postId) },
+                                        onCreatorClick = { onCreatorClick(post.author.userId) }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
     // Plan Actions Bottom Sheet (from Long-Press)
     planForActions?.let { plan ->
@@ -1193,71 +1188,92 @@ fun HomeScreen(
         )
     }
 
+    if (showCreatorWaitlistSheet) {
+        com.example.plannerapp.ui.creator.CreatorWaitlistSheet(
+            onDismissRequest = { showCreatorWaitlistSheet = false }
+        )
+    }
+
     if (showProDialog) {
-        AlertDialog(
+        PlannerProDialog(
             onDismissRequest = { showProDialog = false },
-            icon = {
-                Icon(
-                    imageVector = Icons.Outlined.WorkspacePremium,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = "Planner Pro",
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "Supercharge your productivity with Pro features:",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    ProBenefitRow(
-                        icon = Icons.Outlined.CloudSync,
-                        title = "Unlimited Cloud Sync",
-                        subtitle = "Sync routines across all your devices seamlessly"
-                    )
-                    ProBenefitRow(
-                        icon = Icons.Outlined.AutoGraph,
-                        title = "Advanced Analytics",
-                        subtitle = "Deep-dive charts and habit consistency metrics"
-                    )
-                    ProBenefitRow(
-                        icon = Icons.Outlined.Storefront,
-                        title = "Creator Marketplace",
-                        subtitle = "Publish paid plans and earn credits from forks"
-                    )
-                    ProBenefitRow(
-                        icon = Icons.Outlined.Bolt,
-                        title = "Streak Multipliers",
-                        subtitle = "Bonus credits earned for consistency milestones"
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showProDialog = false
-                        showCreditHubSheet = true
-                    }
-                ) {
-                    Text("Visit Store")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showProDialog = false }) {
-                    Text("Maybe Later")
-                }
+            onVisitStoreClick = {
+                showProDialog = false
+                showCreditHubSheet = true
             }
         )
     }
+
+    if (showCreditHubSheet && creditViewModel != null) {
+        CreditHubSheet(
+            viewModel = creditViewModel,
+            onDismissRequest = { showCreditHubSheet = false }
+        )
     }
+}
+
+@Composable
+fun PlannerProDialog(
+    onDismissRequest: () -> Unit,
+    onVisitStoreClick: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        icon = {
+            Icon(
+                imageVector = Icons.Outlined.WorkspacePremium,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(32.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "Planner Pro",
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Supercharge your productivity with Pro features:",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                ProBenefitRow(
+                    icon = Icons.Outlined.CloudSync,
+                    title = "Unlimited Cloud Sync",
+                    subtitle = "Sync routines across all your devices seamlessly"
+                )
+                ProBenefitRow(
+                    icon = Icons.Outlined.AutoGraph,
+                    title = "Advanced Analytics",
+                    subtitle = "Deep-dive charts and habit consistency metrics"
+                )
+                ProBenefitRow(
+                    icon = Icons.Outlined.Storefront,
+                    title = "Creator Marketplace",
+                    subtitle = "Publish paid plans and earn credits from forks"
+                )
+                ProBenefitRow(
+                    icon = Icons.Outlined.Bolt,
+                    title = "Streak Multipliers",
+                    subtitle = "Bonus credits earned for consistency milestones"
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onVisitStoreClick) {
+                Text("Visit Store")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text("Maybe Later")
+            }
+        }
+    )
 }
 
 @Composable

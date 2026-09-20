@@ -6,20 +6,25 @@ import androidx.lifecycle.viewModelScope
 import com.example.plannerapp.data.social.CommunityPost
 import com.example.plannerapp.data.social.FeedFilter
 import com.example.plannerapp.data.social.SocialRepository
+import com.example.plannerapp.data.social.SocialSearchResult
 import com.example.plannerapp.data.social.VoteType
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 data class CommunityFeedUiState(
     val posts: List<CommunityPost> = emptyList(),
     val searchQuery: String = "",
+    val searchResults: SocialSearchResult = SocialSearchResult(),
+    val isSearching: Boolean = false,
     val selectedFilter: FeedFilter = FeedFilter.TRENDING,
+    val followingUserIds: Set<String> = emptySet(),
     val isLoading: Boolean = false,
     val errorMessage: String? = null
 )
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class CommunityFeedViewModel(
     private val socialRepository: SocialRepository,
     initialQuery: String = ""
@@ -29,22 +34,58 @@ class CommunityFeedViewModel(
     private val _selectedFilter = MutableStateFlow(FeedFilter.TRENDING)
     private val _errorMessage = MutableStateFlow<String?>(null)
 
-    val uiState: StateFlow<CommunityFeedUiState> = combine(
-        _searchQuery,
-        _selectedFilter,
-        _errorMessage
-    ) { query, filter, error ->
-        Triple(query, filter, error)
-    }.flatMapLatest { (query, filter, error) ->
-        socialRepository.getPosts(filter = filter, query = query).map { posts ->
-            CommunityFeedUiState(
-                posts = posts,
-                searchQuery = query,
-                selectedFilter = filter,
-                isLoading = false,
-                errorMessage = error
-            )
+    private val debouncedQuery = _searchQuery
+        .debounce(250L)
+        .distinctUntilChanged()
+
+    private val searchFlow = debouncedQuery.flatMapLatest { query ->
+        if (query.isBlank()) {
+            flowOf(SocialSearchResult())
+        } else {
+            socialRepository.search(query)
         }
+    }
+
+    private val postsFeedFlow = combine(
+        _selectedFilter,
+        debouncedQuery
+    ) { filter, query ->
+        Pair(filter, query)
+    }.flatMapLatest { (filter, query) ->
+        if (query.isNotBlank()) {
+            // When actively searching, avoid executing feed query concurrently
+            flowOf(emptyList())
+        } else {
+            socialRepository.getPosts(filter = filter, query = "")
+        }
+    }
+
+    private data class FeedParams(
+        val query: String,
+        val filter: FeedFilter,
+        val error: String?
+    )
+
+    private val feedParamsFlow = combine(_searchQuery, _selectedFilter, _errorMessage) { query, filter, error ->
+        FeedParams(query, filter, error)
+    }
+
+    val uiState: StateFlow<CommunityFeedUiState> = combine(
+        postsFeedFlow,
+        searchFlow,
+        socialRepository.getFollowingList(),
+        feedParamsFlow
+    ) { posts, searchResults, following, params ->
+        CommunityFeedUiState(
+            posts = posts,
+            searchQuery = params.query,
+            searchResults = searchResults,
+            isSearching = params.query.isNotBlank(),
+            selectedFilter = params.filter,
+            followingUserIds = following,
+            isLoading = false,
+            errorMessage = params.error
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -79,6 +120,41 @@ class CommunityFeedViewModel(
         }
     }
 
+    fun onToggleFollow(userId: String) {
+        viewModelScope.launch {
+            try {
+                val isFollowing = uiState.value.followingUserIds.contains(userId)
+                if (isFollowing) {
+                    socialRepository.unfollowCreator(userId)
+                } else {
+                    socialRepository.followCreator(userId)
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = e.message
+            }
+        }
+    }
+
+    fun onReportContent(targetId: String, targetType: String, reason: String, reporterUserId: String = "local_user") {
+        viewModelScope.launch {
+            try {
+                socialRepository.reportContent(targetId, targetType, reason, reporterUserId)
+            } catch (e: Exception) {
+                _errorMessage.value = e.message
+            }
+        }
+    }
+
+    fun onBlockUser(targetUserId: String, currentUserId: String = "local_user") {
+        viewModelScope.launch {
+            try {
+                socialRepository.blockUser(targetUserId, currentUserId)
+            } catch (e: Exception) {
+                _errorMessage.value = e.message
+            }
+        }
+    }
+
     fun clearError() {
         _errorMessage.value = null
     }
@@ -96,3 +172,4 @@ class CommunityFeedViewModelFactory(
         throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
+

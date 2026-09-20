@@ -25,7 +25,8 @@ class SharingRepository(
         planDescription: String,
         durationDays: Int,
         templatePayloadJson: String,
-        authorUserId: Long
+        authorUserId: Long,
+        remoteId: String? = null
     ): Pair<String, Uri> {
         val shareCode = PlanSharingManager.generateShareCode()
 
@@ -47,7 +48,8 @@ class SharingRepository(
         val deepLinkUri = PlanSharingManager.buildDeepLinkUri(
             shareCode = shareCode,
             authorUserId = authorUserId,
-            planTitle = planTitle
+            planTitle = planTitle,
+            remoteId = remoteId
         )
 
         return Pair(shareCode, deepLinkUri)
@@ -56,11 +58,11 @@ class SharingRepository(
     suspend fun recordPlanClone(shareCode: String, recipientUserId: Long, authorUserId: Long) {
         sharingDao.incrementCloneCount(shareCode)
 
-        // Award +100 bonus credits to both parties
+        // Award +100 bonus credits to creator when peer clones their shared plan
         creditRepository?.awardViralCloneBonus(
-            recipientUserId = recipientUserId,
-            referrerUserId = authorUserId,
-            shareCode = shareCode,
+            creatorUserId = authorUserId,
+            joinerUserId = recipientUserId,
+            postId = shareCode,
             bonusPoints = 100
         )
     }

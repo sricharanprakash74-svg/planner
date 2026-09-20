@@ -1,17 +1,22 @@
 package com.example.plannerapp.ui.profile
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import com.example.plannerapp.data.DailyCheckinEntity
+import com.example.plannerapp.theme.AppDimens
 import com.example.plannerapp.ui.analytics.ConsistencyStockChartCard
 
+/**
+ * Personal Analytics section for the Profile screen.
+ *
+ * Deliberately flat — the chart renders directly on the scroll surface without
+ * any surrounding card wrapper. This removes the box-inside-box nesting that was
+ * previously: ProfileAnalyticsCard (Card) -> ConsistencyStockChartCard (Card) -> content.
+ */
 @Composable
 fun ProfileAnalyticsCard(
     weeklyCheckins: List<DailyCheckinEntity>,
@@ -19,49 +24,42 @@ fun ProfileAnalyticsCard(
     onAnalyticsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp)
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Section header — no Card wrapper, just a row on the scroll surface
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Personal Analytics",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Consistency & performance curve",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                TextButton(onClick = onAnalyticsClick) {
-                    Text(
-                        text = "Full View",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+            Column {
+                Text(
+                    text = "Personal Analytics",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Consistency & performance curve",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            ConsistencyStockChartCard(
-                weeklyCheckins = weeklyCheckins,
-                streak = streak
-            )
+            TextButton(onClick = onAnalyticsClick) {
+                Text(
+                    text = "Full View",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
+
+        Spacer(modifier = Modifier.height(AppDimens.Space12))
+
+        // Chart renders directly on the surface — no outer Card nesting
+        ConsistencyStockChartCard(
+            weeklyCheckins = weeklyCheckins,
+            streak = streak
+        )
     }
 }

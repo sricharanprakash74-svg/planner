@@ -195,17 +195,53 @@ fun SharePlanStoryDialog(
                                 val user = withContext(Dispatchers.IO) { db.userDao().getActiveUserOnce() }
                                 val userId = user?.userId ?: 0L
 
-                                val creditRepo = CreditRepository(db.creditDao())
-                                val sharingRepo = SharingRepository(db.sharingDao(), creditRepo)
-
                                 val (shareCode, deepLinkUri) = withContext(Dispatchers.IO) {
+                                    val planEntity = db.plannerDao().getPlanById(planId)
+                                    val templates = db.plannerDao().getTemplatesForPlan(planId)
+                                    val authorUser = user ?: com.example.plannerapp.data.UserEntity(
+                                        userId = userId,
+                                        displayName = "Planner User"
+                                    )
+                                    val templateJson = if (planEntity != null) {
+                                        val templateDto = com.example.plannerapp.data.template.PlanExporter().exportPlan(
+                                            plan = planEntity,
+                                            templates = templates,
+                                            author = authorUser
+                                        )
+                                        com.google.gson.Gson().toJson(templateDto)
+                                    } else {
+                                        "{}"
+                                    }
+
+                                    var remotePlanId: String? = null
+                                    if (com.example.plannerapp.auth.SupabaseConfig.isConfigured && templateJson.isNotBlank() && templateJson != "{}") {
+                                        try {
+                                            val socialRepo = com.example.plannerapp.data.social.SupabaseSocialRepository()
+                                            val publishResult = socialRepo.publishPublicPlan(
+                                                title = planTitle,
+                                                description = planEntity?.description ?: "",
+                                                category = "Shared",
+                                                tags = emptyList(),
+                                                durationDays = durationDays,
+                                                templateJson = templateJson,
+                                                visibility = "UNLISTED"
+                                            )
+                                            remotePlanId = publishResult.getOrNull()?.id
+                                        } catch (_: Exception) {
+                                            // Non-fatal: fallback to local share code
+                                        }
+                                    }
+
+                                    val creditRepo = CreditRepository(db.creditDao())
+                                    val sharingRepo = SharingRepository(db.sharingDao(), creditRepo)
                                     sharingRepo.createAndSharePlan(
                                         planId = planId,
                                         planTitle = planTitle,
-                                        planDescription = "",
+                                        planDescription = planEntity?.description ?: "",
                                         durationDays = durationDays,
-                                        templatePayloadJson = "{}",
-                                        authorUserId = userId
+                                        templatePayloadJson = templateJson,
+                                        authorUserId = userId,
+                                        remoteId = remotePlanId
                                     )
                                 }
 

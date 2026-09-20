@@ -1,9 +1,11 @@
 package com.example.plannerapp.ui.create
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -12,8 +14,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -39,8 +43,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.plannerapp.theme.PhysicsSpec
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -62,6 +71,8 @@ fun PlanDetailsFormSection(
     onReminderEnabledChange: (Boolean) -> Unit,
     reminderTime: String,
     onReminderTimeChange: (String) -> Unit,
+    isPublic: Boolean = false,
+    onIsPublicChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showStartDatePicker by remember { mutableStateOf(false) }
@@ -93,13 +104,36 @@ fun PlanDetailsFormSection(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        val startInteraction = remember { MutableInteractionSource() }
+        val isStartPressed by startInteraction.collectIsPressedAsState()
+        val startScale by animateFloatAsState(
+            targetValue = if (isStartPressed) 0.94f else 1f,
+            animationSpec = PhysicsSpec.PressDown,
+            label = "start_date_scale"
+        )
+
+        val endInteraction = remember { MutableInteractionSource() }
+        val isEndPressed by endInteraction.collectIsPressedAsState()
+        val endScale by animateFloatAsState(
+            targetValue = if (isEndPressed) 0.94f else 1f,
+            animationSpec = PhysicsSpec.PressDown,
+            label = "end_date_scale"
+        )
+
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("Start Date", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = { showStartDatePicker = true },
-                    modifier = Modifier.fillMaxWidth()
+                    interactionSource = startInteraction,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            scaleX = startScale
+                            scaleY = startScale
+                        }
                 ) {
                     Text(startDate.format(dateFormatter))
                 }
@@ -109,7 +143,14 @@ fun PlanDetailsFormSection(
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = { showEndDatePicker = true },
-                    modifier = Modifier.fillMaxWidth()
+                    interactionSource = endInteraction,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            scaleX = endScale
+                            scaleY = endScale
+                        }
                 ) {
                     Text(endDate.format(dateFormatter))
                 }
@@ -118,38 +159,81 @@ fun PlanDetailsFormSection(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Reminder section
+        // Plan Visibility Card (Private vs Public)
         Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            )
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(
-                            imageVector = if (reminderEnabled) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
-                            contentDescription = "Daily Reminder",
-                            tint = if (reminderEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            imageVector = if (isPublic) Icons.Outlined.Public else Icons.Outlined.Lock,
+                            contentDescription = null,
+                            tint = if (isPublic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Daily Reminder",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
+                                text = if (isPublic) "Public Plan" else "Private Plan",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = if (reminderEnabled) "Notify daily at ${formatReminderTime(reminderTime)}" else "Reminders disabled",
+                                text = if (isPublic)
+                                    "Discoverable by the community. Other users can view, discuss, and use this plan."
+                                else
+                                    "Only you can access this plan. Kept private and offline-first on your device.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = isPublic,
+                        onCheckedChange = onIsPublicChange
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Reminder Card
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (reminderEnabled) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
+                            contentDescription = null,
+                            tint = if (reminderEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Daily Reminder", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = if (reminderEnabled) "Notify at ${formatReminderTime(reminderTime)}" else "No reminder set",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -164,25 +248,27 @@ fun PlanDetailsFormSection(
                 if (reminderEnabled) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Reminder Time",
+                        text = "Suggested Times",
                         style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
+
+                    val presets = listOf("07:00", "08:00", "09:00", "20:00", "21:00")
+                    val isCustom = reminderTime !in presets
+
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val presets = listOf("08:00" to "8:00 AM", "12:00" to "12:00 PM", "20:00" to "8:00 PM")
-                        presets.forEach { (timeVal, label) ->
+                        presets.forEach { preset ->
                             FilterChip(
-                                selected = reminderTime == timeVal,
-                                onClick = { onReminderTimeChange(timeVal) },
-                                label = { Text(label) }
+                                selected = reminderTime == preset,
+                                onClick = { onReminderTimeChange(preset) },
+                                label = { Text(formatReminderTime(preset)) }
                             )
                         }
-                        val isCustom = presets.none { it.first == reminderTime }
                         FilterChip(
                             selected = isCustom,
                             onClick = { showTimePicker = true },

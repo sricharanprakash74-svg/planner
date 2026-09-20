@@ -61,7 +61,11 @@ class CreditViewModel(
         _uiState.value = _uiState.value.copy(message = null)
     }
 
-    fun purchaseStreakFreeze(cost: Int = 150, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+    fun purchaseStreakFreeze(
+        context: android.content.Context? = null,
+        cost: Int = 150,
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isBusy = true)
             try {
@@ -74,6 +78,9 @@ class CreditViewModel(
 
                 val success = repository.buyStreakFreeze(user.userId, cost)
                 if (success) {
+                    context?.let { ctx ->
+                        com.example.plannerapp.widget.StreakWidgetUpdater.update(ctx)
+                    }
                     onResult(true, "Streak Freeze acquired successfully")
                 } else {
                     onResult(false, "Insufficient credits (Need $cost credits)")
@@ -87,6 +94,14 @@ class CreditViewModel(
     }
 
     fun redeemTier(tierName: String, cost: Int, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        purchaseUtility(tierName, cost, onResult)
+    }
+
+    fun purchaseUtility(
+        itemTitle: String,
+        cost: Int,
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isBusy = true)
             try {
@@ -97,14 +112,14 @@ class CreditViewModel(
                     return@launch
                 }
 
-                val success = repository.redeemTierUpgrade(user.userId, tierName, cost)
+                val success = repository.redeemTierUpgrade(user.userId, itemTitle, cost)
                 if (success) {
-                    onResult(true, "Unlocked $tierName successfully")
+                    onResult(true, "$itemTitle unlocked successfully")
                 } else {
                     onResult(false, "Insufficient credits (Need $cost credits)")
                 }
             } catch (e: Exception) {
-                onResult(false, e.message ?: "Failed to unlock tier")
+                onResult(false, e.message ?: "Failed to unlock $itemTitle")
             } finally {
                 _uiState.value = _uiState.value.copy(isBusy = false)
             }

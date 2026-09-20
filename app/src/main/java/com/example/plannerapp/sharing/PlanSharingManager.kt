@@ -19,12 +19,20 @@ object PlanSharingManager {
 
     fun generateShareCode(): String = UUID.randomUUID().toString().take(8).uppercase()
 
-    fun buildDeepLinkUri(shareCode: String, authorUserId: Long, planTitle: String): Uri {
-        return Uri.parse(DEEP_LINK_BASE).buildUpon()
+    fun buildDeepLinkUri(
+        shareCode: String,
+        authorUserId: Long,
+        planTitle: String,
+        remoteId: String? = null
+    ): Uri {
+        val builder = Uri.parse(DEEP_LINK_BASE).buildUpon()
             .appendQueryParameter("code", shareCode)
             .appendQueryParameter("ref", authorUserId.toString())
             .appendQueryParameter("title", planTitle)
-            .build()
+        if (!remoteId.isNullOrBlank()) {
+            builder.appendQueryParameter("remoteId", remoteId)
+        }
+        return builder.build()
     }
 
     /**

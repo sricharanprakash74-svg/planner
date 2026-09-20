@@ -1,37 +1,43 @@
 package com.example.plannerapp.ui.billing
 
-import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.plannerapp.billing.BillingConfig
 import com.example.plannerapp.billing.BillingViewModel
-import com.revenuecat.purchases.Package
-import com.revenuecat.purchases.PackageType
+import com.example.plannerapp.theme.AppAccent
+import com.example.plannerapp.theme.AppDimens
+import com.example.plannerapp.theme.AppDisabledBgLight
+import com.example.plannerapp.theme.AppDisabledText
+import com.example.plannerapp.theme.AppPrimaryButton
+import com.example.plannerapp.theme.AppPrimaryButtonPressed
+import com.example.plannerapp.theme.AppSuccess
 
 /**
- * Modern Jetpack Compose Paywall Screen for PlannerApp Pro Pass.
+ * Modern Jetpack Compose Dummy Paywall Screen.
  *
- * Store-agnostic: adapts seamlessly to Google Play and Samsung Galaxy Store.
- * Strictly adheres to the zero-emoji guideline using Material 3 vector icons.
+ * 100% offline, zero external billing SDK dependencies.
+ * Adheres strictly to the Zero Emojis guideline using Material 3 vector icons.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,21 +46,14 @@ fun PaywallScreen(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
-    val activity = context as? Activity
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = remember(context) { context as? android.app.Activity }
 
-    val accentColor = MaterialTheme.colorScheme.primary
-
-    LaunchedEffect(uiState.errorMessage, uiState.userFeedbackMessage) {
-        val error = uiState.errorMessage
-        val feedback = uiState.userFeedbackMessage
-        if (error != null) {
-            snackbarHostState.showSnackbar(error)
-            viewModel.clearFeedback()
-        } else if (feedback != null) {
-            snackbarHostState.showSnackbar(feedback)
+    LaunchedEffect(uiState.userFeedbackMessage) {
+        uiState.userFeedbackMessage?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
             viewModel.clearFeedback()
         }
     }
@@ -74,11 +73,11 @@ fun PaywallScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(8.dp),
                             color = MaterialTheme.colorScheme.primaryContainer
                         ) {
                             Text(
-                                text = uiState.storeName,
+                                text = "Pro Pass",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -96,21 +95,9 @@ fun PaywallScreen(
                     }
                 },
                 actions = {
-                    TextButton(
-                        onClick = { viewModel.restorePurchases() },
-                        enabled = !uiState.isRestoring && !uiState.isPurchasing
-                    ) {
-                        if (uiState.isRestoring) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Text(
-                                text = "Restore",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold
-                            )
+                    if (uiState.isProActive) {
+                        TextButton(onClick = { viewModel.resetMockStatus() }) {
+                            Text("Reset", style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 },
@@ -130,72 +117,91 @@ fun PaywallScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (uiState.isPremium) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.CheckCircle,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Planner Pro is Active",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
-                        }
-                    } else {
+                    if (uiState.isProActive) {
                         Button(
-                            onClick = {
-                                if (activity != null) {
-                                    viewModel.purchase(activity)
-                                }
-                            },
-                            enabled = !uiState.isPurchasing && !uiState.isRestoring && uiState.selectedPackage != null,
-                            shape = RoundedCornerShape(12.dp),
+                            onClick = onDismiss,
+                            shape = RoundedCornerShape(AppDimens.CornerButton),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = Color.White
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(52.dp)
+                                .height(AppDimens.ButtonHeight)
+                        ) {
+                            Text(
+                                text = "Continue to App",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    } else {
+                        val purchaseSource = remember { MutableInteractionSource() }
+                        val isPurchasePressed by purchaseSource.collectIsPressedAsState()
+                        val purchaseBg = if (isPurchasePressed) AppPrimaryButtonPressed else AppPrimaryButton
+
+                        Button(
+                            onClick = { viewModel.purchase(activity) },
+                            enabled = !uiState.isPurchasing && !uiState.isRestoring,
+                            interactionSource = purchaseSource,
+                            shape = RoundedCornerShape(AppDimens.CornerButton),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = purchaseBg,
+                                contentColor = Color.White,
+                                disabledContainerColor = AppDisabledBgLight,
+                                disabledContentColor = AppDisabledText
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(AppDimens.ButtonHeight)
                         ) {
                             if (uiState.isPurchasing) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(22.dp),
-                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    color = Color.White,
                                     strokeWidth = 2.dp
                                 )
                             } else {
-                                val pkg = uiState.selectedPackage
-                                val buttonText = if (pkg != null) {
-                                    "Continue with ${pkg.product.price.formatted}"
+                                val ctaText = if (uiState.selectedTier == BillingConfig.PACKAGE_ANNUAL) {
+                                    "Start 7-Day Free Trial — then \$39.99/year"
                                 } else {
-                                    "Select a Plan"
+                                    "Start Monthly Membership — \$4.99/month"
                                 }
                                 Text(
-                                    text = buttonText,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
+                                    text = ctaText,
+                                    style = MaterialTheme.typography.labelLarge
                                 )
                             }
+                        }
+
+                        // Ghost button for Restore Purchases
+                        TextButton(
+                            onClick = { viewModel.restorePurchases() },
+                            enabled = !uiState.isRestoring && !uiState.isPurchasing,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(AppDimens.ButtonHeight),
+                            shape = RoundedCornerShape(AppDimens.CornerButton)
+                        ) {
+                            if (uiState.isRestoring) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = "Restore Purchases",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
 
                     // Compliance disclaimer footnote
                     Text(
-                        text = "Recurring billing. Cancel anytime in ${uiState.storeName} account settings. Terms and Privacy Policy apply.",
+                        text = "Recurring billing. Cancel anytime in your account settings. Terms of Service & Privacy Policy apply.",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -210,119 +216,83 @@ fun PaywallScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = AppDimens.ScreenHorizontalPadding),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Space16)
         ) {
-            // Hero Value Proposition Card
+            // Success state banner if Pro is active
+            if (uiState.isProActive) {
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ProUnlockedBanner(onContinue = onDismiss)
+                }
+            }
+
+            // Header Section: Unlock Pro Access
             item {
                 Spacer(modifier = Modifier.height(4.dp))
-                HeroHeaderCard(storeName = uiState.storeName, isPremium = uiState.isPremium)
+                HeaderCard()
             }
 
-            // Benefits Checklist
+            // Feature List with checkmarks
             item {
-                ProFeaturesList()
+                ProFeaturesCard()
             }
 
-            // Packages Section Header
+            // Subscription Tiers Header
             item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "Choose Your Membership",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (uiState.isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
-                }
+                Text(
+                    text = "Choose Your Membership",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
-            // Available Packages
-            val packages = uiState.currentOffering?.availablePackages.orEmpty()
-            if (packages.isNotEmpty()) {
-                items(packages, key = { it.identifier }) { pkg ->
-                    val isSelected = uiState.selectedPackage?.identifier == pkg.identifier
-                    PackageTierCard(
-                        rcPackage = pkg,
-                        isSelected = isSelected,
-                        onClick = { viewModel.selectPackage(pkg) }
-                    )
-                }
-            } else if (!uiState.isLoading) {
-                // Fallback state when RevenueCat API keys are placeholders, offline, or network dropped
-                item {
-                    PlaceholderOfferingNotice(
-                        storeName = uiState.storeName,
-                        errorMessage = uiState.errorMessage,
-                        onRetry = { viewModel.fetchOfferings() }
-                    )
-                }
-            }
-
-            // Prominent Store Compliance Restore Section
+            // Annual Tier Card ($39.99/yr - Save 33%)
             item {
-                OutlinedCard(
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Already have a subscription?",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Restore your previous purchases across devices.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        TextButton(
-                            onClick = { viewModel.restorePurchases() },
-                            enabled = !uiState.isRestoring && !uiState.isPurchasing
-                        ) {
-                            Text(
-                                text = "Restore",
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
+                TierCard(
+                    title = "Annual Plan",
+                    price = BillingConfig.PRICE_ANNUAL,
+                    subtitle = "$3.33 / month · Billed annually",
+                    savingsBadge = "Save 33% · Best Value",
+                    isSelected = uiState.selectedTier == BillingConfig.PACKAGE_ANNUAL,
+                    onClick = { viewModel.selectTier(BillingConfig.PACKAGE_ANNUAL) }
+                )
+            }
+
+            // Monthly Tier Card ($4.99/mo)
+            item {
+                TierCard(
+                    title = "Monthly Plan",
+                    price = BillingConfig.PRICE_MONTHLY,
+                    subtitle = "Flexible recurring monthly subscription",
+                    savingsBadge = null,
+                    isSelected = uiState.selectedTier == BillingConfig.PACKAGE_MONTHLY,
+                    onClick = { viewModel.selectTier(BillingConfig.PACKAGE_MONTHLY) }
+                )
+            }
+
+            // Bottom Spacing
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
 }
 
 @Composable
-private fun HeroHeaderCard(storeName: String, isPremium: Boolean) {
+private fun HeaderCard() {
     Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(AppDimens.CornerCard),
+        color = MaterialTheme.colorScheme.primaryContainer,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(AppDimens.Space20),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
                 modifier = Modifier
-                    .size(54.dp)
+                    .size(56.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                 contentAlignment = Alignment.Center
@@ -331,19 +301,19 @@ private fun HeroHeaderCard(storeName: String, isPremium: Boolean) {
                     imageVector = Icons.Outlined.WorkspacePremium,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(30.dp)
+                    modifier = Modifier.size(32.dp)
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = if (isPremium) "Planner Pro Unlocked" else "Elevate Your Routine",
+                text = "Unlock Pro Access",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Full access to premium features, advanced analytics, creator tools, and cross-device sync via $storeName.",
+                text = "Supercharge your habit routines and unlock unrestricted productivity superpowers.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -353,70 +323,65 @@ private fun HeroHeaderCard(storeName: String, isPremium: Boolean) {
 }
 
 @Composable
-private fun ProFeaturesList() {
+private fun ProFeaturesCard() {
     Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(AppDimens.CornerCard),
+        color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.padding(AppDimens.CardInternalPadding),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.Space16)
         ) {
-            ProFeatureRow(
-                icon = Icons.Outlined.AllInclusive,
-                title = "Unlimited Habit Plans",
-                subtitle = "Create and track unlimited custom routines without restrictions."
+            FeatureRow(
+                title = "Unlimited Cloud Sync",
+                subtitle = "Seamless real-time synchronization across all your devices."
             )
-            ProFeatureRow(
-                icon = Icons.Outlined.Insights,
-                title = "Advanced AI Analytics",
-                subtitle = "Deep consistency trends, streak projections, and performance insights."
+            FeatureRow(
+                title = "Advanced Analytics",
+                subtitle = "Consistency stock-market curves, streak projections & reports."
             )
-            ProFeatureRow(
-                icon = Icons.Outlined.Bolt,
-                title = "Streak Shield & Freezes",
-                subtitle = "Complimentary monthly streak protection shields for off-schedule days."
+            FeatureRow(
+                title = "Ad-free Experience",
+                subtitle = "Completely distraction-free planning without interruptions."
             )
-            ProFeatureRow(
-                icon = Icons.Outlined.Storefront,
-                title = "Verified Creator Privileges",
-                subtitle = "Publish paid templates and monetize directly with 70% revenue share."
+            FeatureRow(
+                title = "Streak Freeze Protection",
+                subtitle = "Automatic streak shield saves your streaks on off-schedule days."
             )
         }
     }
 }
 
 @Composable
-private fun ProFeatureRow(icon: ImageVector, title: String, subtitle: String) {
+private fun FeatureRow(
+    title: String,
+    subtitle: String
+) {
     Row(
         verticalAlignment = Alignment.Top,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Box(
+        Icon(
+            imageVector = Icons.Filled.Check,
+            contentDescription = null,
+            tint = AppSuccess,
             modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-        Spacer(modifier = Modifier.width(12.dp))
+                .padding(top = 2.dp)
+                .size(AppDimens.IconSizeMd)
+        )
+        Spacer(modifier = Modifier.width(AppDimens.Space12))
         Column {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                fontWeight = FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -424,35 +389,23 @@ private fun ProFeatureRow(icon: ImageVector, title: String, subtitle: String) {
 }
 
 @Composable
-private fun PackageTierCard(
-    rcPackage: Package,
+private fun TierCard(
+    title: String,
+    price: String,
+    subtitle: String,
+    savingsBadge: String?,
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
     val borderColor = if (isSelected) primaryColor else MaterialTheme.colorScheme.outlineVariant
 
-    val periodTitle = when (rcPackage.packageType) {
-        PackageType.ANNUAL -> "Annual Plan"
-        PackageType.MONTHLY -> "Monthly Plan"
-        PackageType.WEEKLY -> "Weekly Plan"
-        PackageType.LIFETIME -> "Lifetime Access"
-        else -> rcPackage.identifier.replaceFirstChar { it.uppercase() }
-    }
-
-    val badgeText = when (rcPackage.packageType) {
-        PackageType.ANNUAL -> "Best Value · Save 50%"
-        PackageType.LIFETIME -> "One-Time Payment"
-        PackageType.MONTHLY -> "Most Flexible"
-        else -> null
-    }
-
     OutlinedCard(
         onClick = onClick,
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(if (isSelected) 2.dp else 1.dp, borderColor),
         colors = CardDefaults.outlinedCardColors(
-            containerColor = if (isSelected) primaryColor.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface
+            containerColor = if (isSelected) primaryColor.copy(alpha = 0.06f) else MaterialTheme.colorScheme.surface
         ),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -471,103 +424,93 @@ private fun PackageTierCard(
                     selected = isSelected,
                     onClick = onClick
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = periodTitle,
+                            text = title,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
-                        if (badgeText != null) {
+                        if (savingsBadge != null) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
                                 color = MaterialTheme.colorScheme.primaryContainer
                             ) {
                                 Text(
-                                    text = badgeText,
+                                    text = savingsBadge,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
                     }
                     Text(
-                        text = rcPackage.product.description.ifBlank { "Unlocks full access to all features" },
+                        text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = rcPackage.product.price.formatted,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isSelected) primaryColor else MaterialTheme.colorScheme.onSurface
-                )
-            }
+            Text(
+                text = price,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (isSelected) primaryColor else MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }
 
 @Composable
-private fun PlaceholderOfferingNotice(
-    storeName: String,
-    errorMessage: String?,
-    onRetry: () -> Unit
-) {
-    OutlinedCard(
-        shape = RoundedCornerShape(14.dp),
+private fun ProUnlockedBanner(onContinue: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Outlined.Info,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "$storeName Integration Ready",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            if (errorMessage != null) {
-                Text(
-                    text = errorMessage,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            } else {
-                Text(
-                    text = "RevenueCat is configured for $storeName. To test live purchases, provide your RevenueCat public API key in build.gradle.kts and configure products in the RevenueCat dashboard.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            OutlinedButton(
-                onClick = onRetry,
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.align(Alignment.End)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Refresh,
+                    imageVector = Icons.Outlined.CheckCircle,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp)
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Retry Loading Plans")
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Pro Unlocked!",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Text(
+                        text = "All Pro features are active for this account.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    )
+                }
+            }
+            TextButton(onClick = onContinue) {
+                Text(
+                    text = "Done",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }

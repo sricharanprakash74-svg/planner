@@ -5,6 +5,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object SignIn : NavKey
 @Serializable data object Home : NavKey
+@Serializable data object Onboarding : NavKey
+@Serializable data object OnboardingPaywall : NavKey
 @Serializable data class Explore(val initialQuery: String = "") : NavKey
 @Serializable data object Profile : NavKey
 @Serializable data object Settings : NavKey
@@ -18,6 +20,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object SettingsBackup : NavKey
 @Serializable data object SettingsExportData : NavKey
 @Serializable data object SettingsDeleteAccount : NavKey
+@Serializable data object SettingsManageAccount : NavKey
 @Serializable data object SettingsSavedPlans : NavKey
 @Serializable data object SettingsActivityLog : NavKey
 @Serializable data object SettingsTimeFocus : NavKey
@@ -32,3 +35,9 @@ import kotlinx.serialization.Serializable
 @Serializable data class CommunityDiscussion(val postId: String) : NavKey
 @Serializable data class CreatorProfile(val userId: String) : NavKey
 @Serializable data object Paywall : NavKey
+@Serializable data object CreatorStudio : NavKey
+@Serializable data object PlannerStore : NavKey
+@Serializable data object Conversations : NavKey
+@Serializable data class Chat(val conversationId: String, val recipientUserId: String, val recipientName: String = "User") : NavKey
+@Serializable data object Notifications : NavKey
+@Serializable data class PublicPlanDetail(val publicPlanId: String) : NavKey

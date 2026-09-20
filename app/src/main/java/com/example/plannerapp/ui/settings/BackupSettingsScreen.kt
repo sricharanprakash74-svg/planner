@@ -81,8 +81,7 @@ fun BackupSettingsScreen(
                     Button(
                         onClick = {
                             isBackingUp = true
-                            WorkManager.getInstance(context)
-                                .enqueue(OneTimeWorkRequest.from(SyncWorker::class.java))
+                            SyncWorker.enqueue(context)
                             scope.launch {
                                 snackbarHostState.showSnackbar("Backup started in the background.")
                             }

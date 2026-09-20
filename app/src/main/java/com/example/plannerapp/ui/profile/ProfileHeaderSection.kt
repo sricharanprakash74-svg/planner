@@ -11,16 +11,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.plannerapp.data.UserEntity
@@ -66,30 +71,30 @@ fun ProfileTopBar(
                 Icon(
                     imageVector = Icons.Outlined.CloudOff,
                     contentDescription = "Offline Mode",
-                    tint = MaterialTheme.colorScheme.error,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
-            }
-
-            // Plain Minimalist Credit Badge: No diamond icon, no separate freezes pill
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                border = BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                ),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable { onOpenCreditHub() }
-            ) {
-                Text(
-                    text = "$creditBalance cr",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                )
+            } else {
+                // Plain Minimalist Credit Badge: No diamond icon, no separate freezes pill
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    ),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable { onOpenCreditHub() }
+                ) {
+                    Text(
+                        text = "$creditBalance cr",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
             }
 
             IconButton(onClick = onSettingsClick) {
@@ -103,17 +108,26 @@ fun ProfileTopBar(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileHeaderSection(
     user: UserEntity?,
     avatarBitmap: ImageBitmap?,
-    plansCount: Int,
+    plansCount: Int = 0,
+    connectsCount: Int = 0,
     streak: Int,
-    consistencyPercentage: Int,
+    consistencyPercentage: Int = 0,
     creditBalance: Int,
     freezesCount: Int,
+    postsCount: Int = 0,
+    publicPostsCount: Int = 0,
+    privatePostsCount: Int = 0,
+    vaultPostsCount: Int = 0,
+    isOwner: Boolean = true,
     onPickPhoto: () -> Unit,
     onEditProfileClick: () -> Unit,
+    onAnalyticsClick: () -> Unit = {},
+    onConnectsClick: () -> Unit = {},
     onOpenCreditHub: () -> Unit,
     onCreatorMonetizationClick: () -> Unit = {},
     onBecomeCreatorClick: () -> Unit = {},
@@ -121,6 +135,20 @@ fun ProfileHeaderSection(
     modifier: Modifier = Modifier
 ) {
     val isCreator = user?.isCreator == true
+    val haptic = LocalHapticFeedback.current
+    var tapTimestamps by remember { mutableStateOf(listOf<Long>()) }
+    var showBreakdownSheet by remember { mutableStateOf(false) }
+
+    fun onPostsTapped() {
+        val now = System.currentTimeMillis()
+        val recentTaps = (tapTimestamps + now).filter { now - it <= 1200 }
+        tapTimestamps = recentTaps
+        if (recentTaps.size >= 3) {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            showBreakdownSheet = true
+            tapTimestamps = emptyList()
+        }
+    }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -161,21 +189,27 @@ fun ProfileHeaderSection(
                     }
                 }
 
-                // Camera overlay — 24dp on the 4pt grid
+                // Camera badge — 24dp circle docked bottom-right with 2dp surface-ring cutout.
+                // The BorderStroke in surface color creates the visual separation from the avatar.
                 Box(
                     modifier = Modifier
-                        .size(AppDimens.AvatarSm)  // 32dp — clean grid value
+                        .size(24.dp)
+                        .offset(x = 2.dp, y = 2.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .clickable { onPickPhoto() },
-                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CameraAlt,
-                        contentDescription = "Change profile photo",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(AppDimens.IconSizeSm)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = "Change profile photo",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
                 }
             }
 
@@ -186,9 +220,33 @@ fun ProfileHeaderSection(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ProfileStatColumn(value = plansCount.toString(), label = "Plans")
-                ProfileStatColumn(value = streak.toString(), label = "Streak")
-                ProfileStatColumn(value = "$consistencyPercentage%", label = "Score")
+                // Connects: shows total connects (followers + following) and opens Connects sheet on tap
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onConnectsClick() }
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                ) {
+                    ProfileStatColumn(
+                        value = connectsCount.toString(),
+                        label = "Connects"
+                    )
+                }
+                ProfileStatColumn(
+                    value = if (streak == 0) "–" else streak.toString(),
+                    label = "Streak"
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onPostsTapped() }
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                ) {
+                    ProfileStatColumn(
+                        value = postsCount.toString(),
+                        label = "Posts"
+                    )
+                }
             }
         }
 
@@ -259,19 +317,29 @@ fun ProfileHeaderSection(
         ) {
             OutlinedButton(
                 onClick = onEditProfileClick,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(AppDimens.CornerCompact)
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp),
+                shape = RoundedCornerShape(AppDimens.CornerCompact),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
             ) {
+                Icon(
+                    imageVector = Icons.Outlined.Edit,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "Edit profile",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
+                    text = "Edit",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
                 )
             }
 
             OutlinedButton(
                 onClick = {
-                    val shareText = "I'm tracking consistency with PlannerApp! Current streak: $streak days, consistency: $consistencyPercentage%."
+                    val shareText = "I'm tracking consistency with PlannerApp! Current streak: $streak days, plans: $plansCount."
                     val sendIntent = Intent().apply {
                         action = Intent.ACTION_SEND
                         putExtra(Intent.EXTRA_TEXT, shareText)
@@ -280,122 +348,262 @@ fun ProfileHeaderSection(
                     val chooser = Intent.createChooser(sendIntent, "Share Profile")
                     context.startActivity(chooser)
                 },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(AppDimens.CornerCompact)
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp),
+                shape = RoundedCornerShape(AppDimens.CornerCompact),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Share,
                     contentDescription = null,
-                    modifier = Modifier.size(AppDimens.IconSizeSm)
+                    modifier = Modifier.size(16.dp)
                 )
-                Spacer(modifier = Modifier.width(AppDimens.Space8))
+                Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "Share profile",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
+                    text = "Share",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+            }
+
+            OutlinedButton(
+                onClick = onAnalyticsClick,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp),
+                shape = RoundedCornerShape(AppDimens.CornerCompact),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.TrendingUp,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Analytics",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(AppDimens.Space8))
 
-        // ── Creator Studio / Become a Creator Action Card ─────────────
+        // ── Creator Program (Coming Soon) Action Card ─────────────
         if (com.example.plannerapp.data.LocalIsOnline.current) {
-            if (isCreator) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onCreatorMonetizationClick() }
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onBecomeCreatorClick() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                            modifier = Modifier.size(36.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.MonetizationOn,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Outlined.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "Creator Studio & Payouts",
+                                    text = "Creator Program",
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
-                                Text(
-                                    text = "Manage plan pricing, 70% earnings & cash-outs",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer
+                                ) {
+                                    Text(
+                                        text = "Coming Soon",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            } else {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onBecomeCreatorClick() }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Star,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Share routines, inspire members & join early access",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = "Become a Creator",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Publish plans, set credit prices & earn 70% cash",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
                         }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
                     }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
+        }
+    }
+
+    if (showBreakdownSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showBreakdownSheet = false },
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                containerColor = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column {
+                            Text(
+                                text = "Posts & Privacy Breakdown",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Total $postsCount published across all visibility tiers",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                        ) {
+                            Text(
+                                text = "$postsCount Total",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    BreakdownTierRow(
+                        icon = Icons.Outlined.Public,
+                        title = "Public & Community",
+                        subtitle = "Discoverable in community feeds and search",
+                        count = publicPostsCount.toString(),
+                        containerColor = Color(0xFFE0E7FF),
+                        contentColor = Color(0xFF3730A3)
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    BreakdownTierRow(
+                        icon = Icons.Outlined.Lock,
+                        title = "Private Posts",
+                        subtitle = "Only accessible to you and your network",
+                        count = privatePostsCount.toString(),
+                        containerColor = Color(0xFFFEF3C7),
+                        contentColor = Color(0xFF92400E)
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    BreakdownTierRow(
+                        icon = Icons.Outlined.Shield,
+                        title = "Vault (Only Me)",
+                        subtitle = if (isOwner) "Strictly confidential personal archive" else "Secret/Vaulted Posts",
+                        count = if (isOwner) vaultPostsCount.toString() else "Confidential",
+                        containerColor = Color(0xFFF1F5F9),
+                        contentColor = Color(0xFF475569)
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+            }
+        }
+    }
+
+@Composable
+private fun BreakdownTierRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    count: String,
+    containerColor: Color,
+    contentColor: Color
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = containerColor,
+                modifier = Modifier.size(38.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = contentColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = count,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }

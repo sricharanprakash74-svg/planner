@@ -13,6 +13,10 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -20,6 +24,14 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+
+sealed interface HomeUiEvent {
+    data class ShowSnackbar(
+        val message: String,
+        val actionLabel: String? = null,
+        val onAction: (() -> Unit)? = null
+    ) : HomeUiEvent
+}
 
 data class HomeUiState(
     val plans: List<PlanEntity> = emptyList()
@@ -30,6 +42,9 @@ class HomeViewModel(
     private val userDao: UserDao,
     private val appContext: Context
 ) : ViewModel() {
+
+    private val _uiEvents = MutableSharedFlow<HomeUiEvent>()
+    val uiEvents: SharedFlow<HomeUiEvent> = _uiEvents.asSharedFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<Resource<HomeUiState>> = userDao.getActiveUser()
@@ -93,7 +108,23 @@ class HomeViewModel(
 
                 onCreated(newPlanId)
             } catch (e: Exception) {
-                // Log or handle error
+                _uiEvents.emit(
+                    HomeUiEvent.ShowSnackbar(
+                        message = "Failed to create plan: ${e.localizedMessage ?: "Unknown error"}",
+                        actionLabel = "Retry",
+                        onAction = {
+                            createQuickPlan(
+                                title,
+                                description,
+                                durationDays,
+                                defaultTaskDurationDays,
+                                reminderEnabled,
+                                reminderTime,
+                                onCreated
+                            )
+                        }
+                    )
+                )
             }
         }
     }
@@ -103,7 +134,13 @@ class HomeViewModel(
             try {
                 repository.togglePinPlan(planId, isPinned)
             } catch (e: Exception) {
-                // Log or handle error
+                _uiEvents.emit(
+                    HomeUiEvent.ShowSnackbar(
+                        message = "Failed to update pin status",
+                        actionLabel = "Retry",
+                        onAction = { togglePinPlan(planId, isPinned) }
+                    )
+                )
             }
         }
     }
@@ -113,7 +150,13 @@ class HomeViewModel(
             try {
                 repository.updatePlansPinStatus(planIds, isPinned)
             } catch (e: Exception) {
-                // Log or handle error
+                _uiEvents.emit(
+                    HomeUiEvent.ShowSnackbar(
+                        message = "Failed to update pinned plans",
+                        actionLabel = "Retry",
+                        onAction = { batchPinPlans(planIds, isPinned) }
+                    )
+                )
             }
         }
     }
@@ -125,7 +168,13 @@ class HomeViewModel(
                 planIds.forEach { planId -> ReminderScheduler.cancel(appContext, planId) }
                 repository.deletePlans(planIds)
             } catch (e: Exception) {
-                // Log or handle error
+                _uiEvents.emit(
+                    HomeUiEvent.ShowSnackbar(
+                        message = "Failed to delete plans",
+                        actionLabel = "Retry",
+                        onAction = { batchDeletePlans(planIds) }
+                    )
+                )
             }
         }
     }
@@ -150,7 +199,24 @@ class HomeViewModel(
                     ReminderScheduler.schedule(appContext, planId, heading, reminderTime)
                 }
             } catch (e: Exception) {
-                // Log or handle error
+                _uiEvents.emit(
+                    HomeUiEvent.ShowSnackbar(
+                        message = "Failed to update plan",
+                        actionLabel = "Retry",
+                        onAction = {
+                            updatePlan(
+                                planId,
+                                heading,
+                                description,
+                                startDate,
+                                endDate,
+                                defaultTaskDurationDays,
+                                reminderEnabled,
+                                reminderTime
+                            )
+                        }
+                    )
+                )
             }
         }
     }
@@ -161,7 +227,13 @@ class HomeViewModel(
                 ReminderScheduler.cancel(appContext, planId)
                 repository.deletePlan(planId)
             } catch (e: Exception) {
-                // Log or handle error
+                _uiEvents.emit(
+                    HomeUiEvent.ShowSnackbar(
+                        message = "Failed to delete plan",
+                        actionLabel = "Retry",
+                        onAction = { deletePlan(planId) }
+                    )
+                )
             }
         }
     }

@@ -39,4 +39,11 @@ interface UserDao {
     // Timezone update
     @Query("UPDATE users SET userTimezone = :timezone WHERE userId = :userId")
     suspend fun updateTimezone(userId: Long, timezone: String)
+
+    // ── Onboarding ────────────────────────────────────────────────────
+    @Query("UPDATE users SET onboardingComplete = 1 WHERE userId = :userId")
+    suspend fun markOnboardingComplete(userId: Long)
+
+    @Query("UPDATE users SET username = :username, categories = :categories, interests = :interests, experienceLevel = :level WHERE userId = :userId")
+    suspend fun updateOnboardingProfile(userId: Long, username: String?, categories: String, interests: String, level: String)
 }

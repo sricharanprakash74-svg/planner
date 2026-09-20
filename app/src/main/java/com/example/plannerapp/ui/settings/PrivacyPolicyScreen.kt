@@ -62,7 +62,7 @@ fun PrivacyPolicyScreen(
             )
             PrivacySection(
                 title = "5. Your Rights",
-                body = "You have the right to access, correct, or delete your personal data at any time. To delete all your data, go to Settings > Profile Center > Delete Account. For data access requests, contact our support team."
+                body = "You have the right to access, correct, or delete your personal data at any time. To delete all your data, go to Settings > Manage Account > Delete Account. For data access requests, contact our support team."
             )
             PrivacySection(
                 title = "6. Contact",

@@ -2,15 +2,21 @@ package com.example.plannerapp.ui.detail
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -18,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,11 +46,14 @@ import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.NewReleases
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.*
 import com.example.plannerapp.sharing.SharePlanStoryDialog
@@ -51,6 +61,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -63,6 +74,20 @@ import androidx.compose.ui.unit.sp
 import com.example.plannerapp.data.DailyTaskView
 import com.example.plannerapp.ui.components.DurationPickerDialog
 import com.example.plannerapp.ui.components.DurationPickerRow
+import com.example.plannerapp.smartlink.SmartLinkParser
+import com.example.plannerapp.smartlink.ui.SmartLinkCard
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.graphicsLayer
+import com.example.plannerapp.theme.AppDimens
+import com.example.plannerapp.theme.PhysicsSpec
+import com.example.plannerapp.ui.components.SubtaskBranchConnector
 import com.example.plannerapp.ui.components.TaskThreadBranch
 import com.example.plannerapp.ui.home.PlanFormDialog
 import com.example.plannerapp.ui.state.Resource
@@ -82,6 +107,7 @@ fun PlanDetailScreen(
     autoOpenAddTask: Boolean = false,
     onBack: () -> Unit,
     onOpenCommunityDiscussion: (String) -> Unit = {},
+    onPlanCloned: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiStateResource by viewModel.uiState.collectAsState()
@@ -104,6 +130,7 @@ fun PlanDetailScreen(
 
     var showFullCalendarDialog by remember { mutableStateOf(false) }
     var showEarlyFinishConfirmDialog by remember { mutableStateOf(false) }
+    var showReflectionSection by remember { mutableStateOf(false) }
     var futureAttemptCount by remember { mutableIntStateOf(0) }
     var showFutureBlockedDialog by remember { mutableStateOf(false) }
 
@@ -160,21 +187,11 @@ fun PlanDetailScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = plan?.heading ?: "Plan Details",
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (plan != null) {
-                            Text(
-                                text = "${plan?.startDate} to ${plan?.endDate}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                    Text(
+                        text = "Plan Overview",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -182,6 +199,44 @@ fun PlanDetailScreen(
                     }
                 },
                 actions = {
+                    AssistChip(
+                        onClick = {
+                            val newPublic = !(plan?.isPublic ?: false)
+                            viewModel.togglePlanVisibility(newPublic)
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (newPublic) "Plan is now Public and discoverable by the community."
+                                    else "Plan is now Private."
+                                )
+                            }
+                        },
+                        label = {
+                            Text(
+                                text = if (plan?.isPublic == true) "Public" else "Private",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (plan?.isPublic == true) Icons.Outlined.Public else Icons.Outlined.Lock,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = if (plan?.isPublic == true)
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            labelColor = if (plan?.isPublic == true)
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        modifier = Modifier.padding(end = 4.dp)
+                    )
+
                     IconButton(onClick = { showShareStoryDialog = true }) {
                         Icon(Icons.Outlined.Share, contentDescription = "Share Story Card")
                     }
@@ -193,6 +248,25 @@ fun PlanDetailScreen(
                             expanded = planMenuExpanded,
                             onDismissRequest = { planMenuExpanded = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text(if (plan?.isPublic == true) "Make Plan Private" else "Make Plan Public") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = if (plan?.isPublic == true) Icons.Outlined.Lock else Icons.Outlined.Public,
+                                        contentDescription = null
+                                    )
+                                },
+                                onClick = {
+                                    planMenuExpanded = false
+                                    val newPublic = !(plan?.isPublic ?: false)
+                                    viewModel.togglePlanVisibility(newPublic)
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            if (newPublic) "Plan is now Public." else "Plan is now Private."
+                                        )
+                                    }
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("Export Story Card") },
                                 leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
@@ -209,6 +283,16 @@ fun PlanDetailScreen(
                                     showEditPlanDialog = true
                                 }
                             )
+                            if (!isDayLocked) {
+                                DropdownMenuItem(
+                                    text = { Text("Finish Day Early (Lock Day)") },
+                                    leadingIcon = { Icon(Icons.Outlined.Lock, contentDescription = null) },
+                                    onClick = {
+                                        planMenuExpanded = false
+                                        showEarlyFinishConfirmDialog = true
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Delete Plan", color = MaterialTheme.colorScheme.error) },
                                 leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
@@ -246,6 +330,104 @@ fun PlanDetailScreen(
             contentPadding = PaddingValues(bottom = 80.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Plan Version Update Banner (Non-destructive update propagation)
+            uiState.planUpdate?.let { update ->
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Outlined.NewReleases,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Plan Update Available: v${update.latestVersionTag}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+
+                            if (update.changelog.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = update.changelog,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                                )
+                            }
+
+                            if (update.newTasks.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
+                                ) {
+                                    Text(
+                                        text = "+${update.newTasks.size} new curriculum tasks",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = {
+                                        viewModel.adoptPlanUpdate(update) { count ->
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("Adopted $count new tasks. Your existing progress is preserved.")
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Adopt Tasks", style = MaterialTheme.typography.labelMedium)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.cloneAsNewPlan(update) { newId ->
+                                            onPlanCloned(newId)
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Clone As New", style = MaterialTheme.typography.labelMedium)
+                                }
+
+                                TextButton(
+                                    onClick = { viewModel.dismissPlanUpdate(update.latestVersionTag) },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Dismiss", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Community Discussion Banner if this plan was joined from the community feed
             uiState.joinedCommunity?.let { community ->
                 item {
@@ -299,12 +481,27 @@ fun PlanDetailScreen(
                 }
             }
 
-            // 1. Plan Progress Header (with Calendar trigger on days left)
+            // 1. Plan Overview Header (with Calendar trigger on days left)
             item {
-                PlanProgressHeader(
+                val headerDateFormatter = remember { DateTimeFormatter.ofPattern("MMM d") }
+                val formattedDates = remember(plan?.startDate, plan?.endDate) {
+                    try {
+                        val start = LocalDate.parse(plan?.startDate ?: "").format(headerDateFormatter)
+                        val end = LocalDate.parse(plan?.endDate ?: "").format(headerDateFormatter)
+                        "$start – $end"
+                    } catch (e: Exception) {
+                        "${plan?.startDate} – ${plan?.endDate}"
+                    }
+                }
+
+                PlanOverviewHeader(
+                    planTitle = plan?.heading ?: "Plan Overview",
+                    dateRange = formattedDates,
                     currentDay = uiState.currentDayNumber,
                     totalDays = uiState.totalDays,
                     progressPercent = uiState.overallProgressPercent,
+                    isDayComplete = isDayLocked || allTasksCompleted,
+                    selectedDate = uiState.selectedDate,
                     onCalendarClick = { showFullCalendarDialog = true }
                 )
             }
@@ -359,81 +556,71 @@ fun PlanDetailScreen(
                 )
             }
 
-            // 5. Tasks Section Title & Status
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Tasks for ${uiState.selectedDate.format(DateTimeFormatter.ofPattern("MMM d, yyyy"))}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (isDayLocked) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFF10B981).copy(alpha = 0.15f)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Lock,
-                                        contentDescription = "Locked",
-                                        tint = Color(0xFF10B981),
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text(
-                                        text = "Completed & Locked",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF10B981),
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        } else if (isFutureDate) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
-                                imageVector = Icons.Filled.Lock,
-                                contentDescription = "Future Date Locked",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
+            if (isDayLocked || (totalTasksCount > 0 && allTasksCompleted)) {
+                // ── COMPLETED DAY / JOURNAL READING VIEW ───────────────
+                item {
+                    CompletedDayJournalView(
+                        date = uiState.selectedDate,
+                        tasks = uiState.tasks,
+                        journalNotes = uiState.journalNotes,
+                        isDayLocked = isDayLocked,
+                        onFinalizeDay = {
+                            viewModel.markDayCompleted(completedTasksCount, totalTasksCount)
+                        },
+                        onAddReflection = {
+                            showJournalSheet = true
                         }
-                    }
-                    Text(
-                        text = "$completedTasksCount/$totalTasksCount Done",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
                     )
                 }
-            }
-
-            // 6. Tasks List or Empty State
-            if (uiState.tasks.isEmpty()) {
+            } else {
+                // ── TASK EXECUTION MODE ────────────────────────────────
                 item {
-                    Box(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 24.dp),
-                        contentAlignment = Alignment.Center
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "No tasks scheduled for this day!",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = "Tasks for ${uiState.selectedDate.format(DateTimeFormatter.ofPattern("MMM d, yyyy"))}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
                             )
-                            if (!isDayLocked) {
+                            if (isFutureDate) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.Filled.Lock,
+                                    contentDescription = "Future Date Locked",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "$completedTasksCount/$totalTasksCount Done",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                if (uiState.tasks.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "No tasks scheduled for this day!",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 TextButton(onClick = { showAddTaskSheet = true }) {
                                     Text("+ Add a task for this day")
@@ -441,125 +628,96 @@ fun PlanDetailScreen(
                             }
                         }
                     }
-                }
-            } else {
-                items(uiState.tasks, key = { it.checkinId }) { task ->
-                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        TaskItemWithSubtasks(
-                            task = task,
-                            isFuture = isFutureDate,
-                            isLocked = isDayLocked,
-                            onCheckedChange = { isChecked -> 
-                                handleCheckinAction {
-                                    viewModel.onTaskChecked(task.checkinId, isChecked)
-                                }
-                            },
-                            onSubtaskCheckedChange = { index, isChecked -> 
-                                handleCheckinAction {
-                                    viewModel.onSubtaskChecked(task, index, isChecked)
-                                }
-                            },
-                            onEdit = { if (!isDayLocked) taskToEdit = task },
-                            onDelete = { if (!isDayLocked) taskToDelete = task }
-                        )
+                } else {
+                    itemsIndexed(uiState.tasks, key = { _, it -> it.checkinId }) { index, task ->
+                        com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                TaskItemWithSubtasks(
+                                    task = task,
+                                    isFuture = isFutureDate,
+                                    isLocked = false,
+                                    onCheckedChange = { isChecked -> 
+                                        handleCheckinAction {
+                                            viewModel.onTaskChecked(task.checkinId, isChecked)
+                                        }
+                                    },
+                                    onSubtaskCheckedChange = { subtaskIndex, isChecked -> 
+                                        handleCheckinAction {
+                                            viewModel.onSubtaskChecked(task, subtaskIndex, isChecked)
+                                        }
+                                    },
+                                    onEdit = { taskToEdit = task },
+                                    onDelete = { taskToDelete = task }
+                                )
+                            }
+                        }
                     }
                 }
-            }
 
-            // 7. Day Completion Prompts
-            item {
-                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    if (isDayLocked) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF10B981).copy(alpha = 0.12f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                // Daily Journal & Reflections Section (Opt-in during execution)
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (showReflectionSection || uiState.journalNotes.isNotBlank()) {
+                            DailyJournalCard(
+                                date = uiState.selectedDate,
+                                initialNotes = uiState.journalNotes,
+                                onNotesChanged = { newNotes -> viewModel.saveJournalNotes(newNotes) }
+                            )
+                        } else {
+                            TextButton(
+                                onClick = { showReflectionSection = true },
+                                colors = ButtonDefaults.textButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                                )
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.CheckCircle,
+                                    imageVector = Icons.Outlined.EditNote,
                                     contentDescription = null,
-                                    tint = Color(0xFF10B981),
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "Day Finalized & Recorded",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF10B981)
-                                    )
-                                    Text(
-                                        text = "Tasks for this day are locked and contributed to your analytics.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    } else if (!isFutureDate && totalTasksCount > 0) {
-                        if (allTasksCompleted) {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(16.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(
-                                        text = "All Tasks Completed for Today!",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Lock in your 100% score to seal this day in your streak & analytics.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Button(
-                                        onClick = { viewModel.markDayCompleted(completedTasksCount, totalTasksCount) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Mark Day as Completed")
-                                    }
-                                }
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = { showEarlyFinishConfirmDialog = true },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Outlined.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Finish Day Early (Lock Day)")
+                                Text(
+                                    text = "Add reflection or daily notes",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
                             }
                         }
                     }
                 }
-            }
 
-            // 8. Daily Journal & Reflections Section
-            item {
-                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    DailyJournalCard(
-                        date = uiState.selectedDate,
-                        initialNotes = uiState.journalNotes,
-                        onNotesChanged = { newNotes -> viewModel.saveJournalNotes(newNotes) }
-                    )
+                // Calm action for Complete Day Early
+                if (totalTasksCount > 0) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            TextButton(
+                                onClick = { showEarlyFinishConfirmDialog = true },
+                                colors = ButtonDefaults.textButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CheckCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Complete day early",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -570,15 +728,15 @@ fun PlanDetailScreen(
             onDismissRequest = { showEarlyFinishConfirmDialog = false },
             icon = {
                 Icon(
-                    imageVector = Icons.Filled.Lock,
+                    imageVector = Icons.Outlined.CheckCircle,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             },
             title = {
                 Text(
-                    text = "Finish Day Early?",
+                    text = "Complete Day Early?",
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleLarge
                 )
@@ -586,15 +744,15 @@ fun PlanDetailScreen(
             text = {
                 Column {
                     Text(
-                        text = "You have completed $completedTasksCount of $totalTasksCount tasks for this day.",
+                        text = "You have completed $completedTasksCount of $totalTasksCount tasks today.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Locking this day early with incomplete tasks will record a lower consistency percentage in your Analytics and you won't be able to edit these tasks later.",
+                        text = "Completing early records your day's achievements. You won't be able to edit today's tasks afterwards.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             },
@@ -604,9 +762,9 @@ fun PlanDetailScreen(
                         viewModel.markDayCompleted(completedTasksCount, totalTasksCount)
                         showEarlyFinishConfirmDialog = false
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Yes, Lock Day")
+                    Text("Complete Day")
                 }
             },
             dismissButton = {
@@ -713,6 +871,71 @@ fun PlanDetailScreen(
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = if (isDayLocked) "Day is locked (tasks cannot be added)" else "Create a task, habit, or checklist routine",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Option 2: Add Subtask
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (isDayLocked) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !isDayLocked) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showAddOptionsSheet = false
+                            val activeTask = uiState.tasks.firstOrNull { !it.isCompleted } ?: uiState.tasks.firstOrNull()
+                            if (activeTask != null) {
+                                taskToEdit = activeTask
+                            } else {
+                                showAddTaskSheet = true
+                            }
+                        }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Add Subtask",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isDayLocked) "Day is locked" else "Break down an existing goal into smaller steps",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1019,20 +1242,29 @@ fun DailyJournalCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            OutlinedTextField(
+            TextField(
                 value = notesText,
                 onValueChange = {
                     notesText = it
                     isSaved = false
                 },
-                placeholder = { Text("How was your day? Jot down what went well or what you learned...") },
+                placeholder = {
+                    Text(
+                        text = "How was your day? Jot down what went well or what you learned...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 100.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                    focusedContainerColor = MaterialTheme.colorScheme.surface
+                shape = RoundedCornerShape(8.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
                 )
             )
 
@@ -1339,45 +1571,119 @@ fun FutureTaskBlockedDialog(
 }
 
 @Composable
-fun PlanProgressHeader(
+fun PlanOverviewHeader(
+    planTitle: String,
+    dateRange: String,
     currentDay: Int,
     totalDays: Int,
     progressPercent: Int,
+    isDayComplete: Boolean,
+    selectedDate: LocalDate,
     onCalendarClick: () -> Unit
 ) {
     val animatedProgress by animateFloatAsState(
         targetValue = (progressPercent / 100f).coerceIn(0f, 1f),
-        animationSpec = tween(durationMillis = 600),
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
         label = "planProgress"
+    )
+    val animatedPercent by animateIntAsState(
+        targetValue = progressPercent,
+        animationSpec = tween(durationMillis = 350),
+        label = "planPercent"
     )
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-        shape = RoundedCornerShape(16.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+        shape = RoundedCornerShape(20.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            // ── 1. Plan Title & Date Range ─────────────────────────
+            Text(
+                text = planTitle,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            if (dateRange.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = dateRange,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ── 2. Subtle Celebratory Day Complete State ───────────
+            AnimatedVisibility(
+                visible = isDayComplete,
+                enter = fadeIn(animationSpec = tween(250)) + expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                exit = fadeOut(animationSpec = tween(200)) + shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF10B981).copy(alpha = 0.10f),
+                    border = BorderStroke(0.5.dp, Color(0xFF10B981).copy(alpha = 0.30f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF10B981)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = "Day Complete",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = if (currentDay in 1..totalDays) "Day $currentDay completed" else "Day completed",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF10B981)
+                            )
+                            Text(
+                                text = "All tasks finished • ${selectedDate.format(DateTimeFormatter.ofPattern("MMM d, yyyy"))}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── 3. Progress Section ────────────────────────────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = if (currentDay in 1..totalDays) "Day $currentDay of $totalDays" else "Selected Day",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "$progressPercent% Completed Overall",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = if (currentDay in 1..totalDays) "Day $currentDay of $totalDays" else "Selected Day",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
 
                 // Dedicated Calendar Button on the Days Left / Progress Badge
                 Surface(
@@ -1397,7 +1703,7 @@ fun PlanProgressHeader(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "${totalDays - currentDay.coerceAtLeast(1)}d left",
+                            text = "${(totalDays - currentDay.coerceAtLeast(1)).coerceAtLeast(0)}d left",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -1408,15 +1714,398 @@ fun PlanProgressHeader(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            LinearProgressIndicator(
-                progress = { animatedProgress },
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp)),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                if (animatedProgress > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction = animatedProgress.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = "$animatedPercent% completed overall",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+fun CompletedDayJournalView(
+    date: LocalDate,
+    tasks: List<DailyTaskView>,
+    journalNotes: String,
+    isDayLocked: Boolean,
+    onFinalizeDay: () -> Unit,
+    onAddReflection: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val dateFormatter = remember { DateTimeFormatter.ofPattern("MMMM d, yyyy") }
+    val formattedDate = remember(date) { date.format(dateFormatter) }
+    val gson = remember { Gson() }
+    val stringListType = remember { object : TypeToken<List<String>>() {}.type }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // ── 1. Hero Celebration & State Banner ──────────────────────
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0xFF10B981).copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.25f))
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF10B981).copy(alpha = 0.16f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF10B981),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "DAY COMPLETE",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF10B981),
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+
+                    if (isDayLocked) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Lock,
+                                    contentDescription = "Locked in History",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "History Locked",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = formattedDate,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                val totalSubtasksCount = remember(tasks) {
+                    tasks.sumOf { task ->
+                        try {
+                            val list: List<String> = gson.fromJson(task.subtasks, stringListType) ?: emptyList()
+                            list.size
+                        } catch (e: Exception) { 0 }
+                    }
+                }
+
+                Text(
+                    text = "You completed everything planned • ${tasks.size} tasks" +
+                            if (totalSubtasksCount > 0) " • $totalSubtasksCount subtasks" else "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (!isDayLocked) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = onFinalizeDay,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF10B981),
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Finalize & Record Day in Streak",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── 2. Today's Progress (Clean Reading Layout) ──────────────
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Checklist,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "TODAY'S PROGRESS",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                tasks.forEachIndexed { index, task ->
+                    val cleanTaskTitle = remember(task.taskDescription) {
+                        val clean = SmartLinkParser.extractCleanText(task.taskDescription)
+                        if (clean.isNotBlank()) clean else task.taskDescription
+                    }
+
+                    val subtasks: List<String> = remember(task.subtasks) {
+                        try {
+                            gson.fromJson(task.subtasks, stringListType) ?: emptyList()
+                        } catch (e: Exception) { emptyList() }
+                    }
+
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = cleanTaskTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFF10B981).copy(alpha = 0.12f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Check,
+                                        contentDescription = null,
+                                        tint = Color(0xFF10B981),
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Done",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF10B981)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (subtasks.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 12.dp)
+                            ) {
+                                subtasks.forEach { subtask ->
+                                    val cleanSub = remember(subtask) {
+                                        val c = SmartLinkParser.extractCleanText(subtask)
+                                        if (c.isNotBlank()) c else subtask
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(vertical = 3.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Check,
+                                            contentDescription = null,
+                                            tint = Color(0xFF10B981),
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = cleanSub,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (index < tasks.lastIndex) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 3. My Journal (Reading Optimized) ───────────────────────
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Outlined.EditNote,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "MY JOURNAL",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+
+                    if (journalNotes.isNotBlank()) {
+                        TextButton(
+                            onClick = onAddReflection,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = "Edit", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                if (journalNotes.isNotBlank()) {
+                    Text(
+                        text = journalNotes,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontSize = 17.sp,
+                            lineHeight = 26.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.EditNote,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Nothing written yet.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Capture your thoughts, reflections, or breakthroughs for today.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        OutlinedButton(
+                            onClick = onAddReflection,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = "Add reflection")
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1461,21 +2150,23 @@ fun PlanDayPill(
     val isCompleted = day.isCompleted
     val isLocked = day.isLocked
 
-    val containerColor = if (isSelected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.surface
+    val targetContainerColor = when {
+        isSelected -> MaterialTheme.colorScheme.primary
+        day.isToday -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+        else -> MaterialTheme.colorScheme.surface
     }
+    val containerColor by animateColorAsState(targetValue = targetContainerColor, label = "pillContainer")
 
-    val contentColor = if (isSelected) {
-        MaterialTheme.colorScheme.onPrimary
-    } else {
-        MaterialTheme.colorScheme.onSurface
+    val targetContentColor = when {
+        isSelected -> MaterialTheme.colorScheme.onPrimary
+        day.isToday -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurface
     }
+    val contentColor by animateColorAsState(targetValue = targetContentColor, label = "pillContent")
 
     Surface(
         modifier = Modifier
-            .width(60.dp)
+            .width(62.dp)
             .clip(RoundedCornerShape(20.dp))
             .then(
                 if (isToday && !isSelected) {
@@ -1488,6 +2179,7 @@ fun PlanDayPill(
             }),
         shape = RoundedCornerShape(20.dp),
         color = containerColor,
+        border = if (!isSelected && !isToday) BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)) else null,
         tonalElevation = if (isSelected) 4.dp else 1.dp
     ) {
         Column(
@@ -1500,7 +2192,7 @@ fun PlanDayPill(
                 style = MaterialTheme.typography.labelSmall,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
-                color = contentColor.copy(alpha = if (isSelected) 0.85f else 0.6f)
+                color = contentColor.copy(alpha = if (isSelected) 0.85f else 0.65f)
             )
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -1514,55 +2206,49 @@ fun PlanDayPill(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Completion / Task Status Dot
+            // Completion / Task Status Dot or Badge
             if (isLocked) {
-                Box(
-                    modifier = Modifier
-                        .size(16.dp)
-                        .clip(CircleShape)
-                        .background(if (isSelected) MaterialTheme.colorScheme.onPrimary else Color(0xFF10B981)),
-                    contentAlignment = Alignment.Center
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else Color(0xFF10B981),
+                    modifier = Modifier.size(18.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Lock,
-                        contentDescription = "Locked",
-                        tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.White,
-                        modifier = Modifier.size(9.dp)
-                    )
-                }
-            } else if (day.hasTasks) {
-                if (isCompleted) {
-                    Box(
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clip(CircleShape)
-                            .background(if (isSelected) MaterialTheme.colorScheme.onPrimary else Color(0xFF10B981)),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = "Completed",
+                            imageVector = Icons.Filled.Lock,
+                            contentDescription = "Locked",
                             tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.White,
                             modifier = Modifier.size(10.dp)
                         )
+                    }
+                }
+            } else if (day.hasTasks) {
+                if (isCompleted) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else Color(0xFF10B981),
+                        modifier = Modifier.size(18.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = "Completed",
+                                tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.White,
+                                modifier = Modifier.size(11.dp)
+                            )
+                        }
                     }
                 } else {
                     // Partial / Pending Tasks dot
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
+                            .size(7.dp)
                             .clip(CircleShape)
-                            .background(if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.primary)
+                            .background(if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f) else MaterialTheme.colorScheme.primary)
                     )
                 }
             } else {
-                // Empty day placeholder dot
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(contentColor.copy(alpha = 0.2f))
-                )
+                Spacer(modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -1594,6 +2280,11 @@ fun TaskItemWithSubtasks(
     val completedSubtaskCount = completedSubtasks.count { it }
     var menuExpanded by remember { mutableStateOf(false) }
     var isSubtasksExpanded by remember { mutableStateOf(true) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isSubtasksExpanded) 180f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "chevronRotate"
+    )
 
     val targetContainerColor = if (task.isCompleted) {
         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
@@ -1605,18 +2296,47 @@ fun TaskItemWithSubtasks(
         targetValue = targetContainerColor,
         label = "taskCardBg"
     )
+    val targetAlpha = if (task.isCompleted) 0.55f else 1.0f
+    val animatedAlpha by animateFloatAsState(
+        targetValue = targetAlpha,
+        label = "taskCardAlpha"
+    )
+
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = if (isPressed) PhysicsSpec.PressDown else PhysicsSpec.PressRelease,
+        label = "taskScale"
+    )
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp)),
-        color = animatedContainerColor
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+            .graphicsLayer { 
+                alpha = animatedAlpha
+                scaleX = scale
+                scaleY = scale 
+            }
+            .clip(RoundedCornerShape(16.dp)),
+        color = animatedContainerColor,
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     ) {
         Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(enabled = !isLocked) { 
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        enabled = !isLocked
+                    ) { 
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onCheckedChange(!task.isCompleted) 
                     }
@@ -1631,13 +2351,22 @@ fun TaskItemWithSubtasks(
                             onCheckedChange(it)
                         }
                     },
-                    enabled = !isLocked
+                    enabled = !isLocked,
+                    modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
+                    val detectedTaskUrl = remember(task.taskDescription) {
+                        SmartLinkParser.findFirstUrl(task.taskDescription)
+                    }
+                    val cleanTaskTitle = remember(task.taskDescription) {
+                        val clean = SmartLinkParser.extractCleanText(task.taskDescription)
+                        if (clean.isNotBlank()) clean else (detectedTaskUrl?.let { SmartLinkParser.extractDomain(it) } ?: task.taskDescription)
+                    }
+
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = task.taskDescription,
+                            text = cleanTaskTitle,
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = if (task.isCompleted) FontWeight.Normal else FontWeight.SemiBold,
                             color = if (task.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface,
@@ -1662,42 +2391,48 @@ fun TaskItemWithSubtasks(
                         }
                     }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(top = 2.dp)
-                    ) {
-                        if (task.durationDays > 1) {
-                            Text(
-                                text = "${task.durationDays}d duration",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        if (subtasks.isNotEmpty()) {
+                    if (detectedTaskUrl != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        SmartLinkCard(
+                            url = detectedTaskUrl,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    if (subtasks.isNotEmpty()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    isSubtasksExpanded = !isSubtasksExpanded
-                                }
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (completedSubtaskCount == subtasks.size && subtasks.isNotEmpty()) Color(0xFF10B981).copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        isSubtasksExpanded = !isSubtasksExpanded
+                                    }
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
                                 ) {
                                     Text(
-                                        text = "$completedSubtaskCount/${subtasks.size} subtasks",
-                                        style = MaterialTheme.typography.labelSmall,
+                                        text = "$completedSubtaskCount of ${subtasks.size} done",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                        fontWeight = FontWeight.Medium,
                                         color = if (completedSubtaskCount == subtasks.size && subtasks.isNotEmpty()) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
                                     Icon(
-                                        imageVector = if (isSubtasksExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                        imageVector = Icons.Filled.KeyboardArrowDown,
                                         contentDescription = if (isSubtasksExpanded) "Collapse subtasks" else "Expand subtasks",
-                                        modifier = Modifier.size(13.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .rotate(chevronRotation),
+                                        tint = if (completedSubtaskCount == subtasks.size && subtasks.isNotEmpty()) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -1731,6 +2466,14 @@ fun TaskItemWithSubtasks(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Add Subtask") },
+                                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onEdit()
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Delete Task", color = MaterialTheme.colorScheme.error) },
                                 leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                                 onClick = {
@@ -1746,13 +2489,23 @@ fun TaskItemWithSubtasks(
             if (subtasks.isNotEmpty()) {
                 AnimatedVisibility(
                     visible = isSubtasksExpanded,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
+                    enter = fadeIn(animationSpec = PhysicsSpec.SheetSettle) + expandVertically(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    ),
+                    exit = fadeOut(animationSpec = PhysicsSpec.SheetSettle) + shrinkVertically(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp)
+                            .padding(start = 26.dp, end = 16.dp, top = 2.dp, bottom = 12.dp)
                     ) {
                         subtasks.forEachIndexed { index, subtaskTitle ->
                             val isSubChecked = completedSubtasks.getOrElse(index) { false }
@@ -1768,13 +2521,13 @@ fun TaskItemWithSubtasks(
                                         onSubtaskCheckedChange(index, !isSubChecked) 
                                     }
                             ) {
-                                // Reddit-style linking thread branch connecting parent to subtask
-                                TaskThreadBranch(
-                                    isLast = isLast,
+                                // Smooth curved tree branch directly anchored beneath parent checkbox
+                                SubtaskBranchConnector(
+                                    isLastChild = isLast,
                                     isCompleted = isSubChecked,
-                                    width = 32.dp,
-                                    trunkX = 12.dp,
-                                    modifier = Modifier.fillMaxHeight()
+                                    modifier = Modifier
+                                        .width(20.dp)
+                                        .fillMaxHeight()
                                 )
 
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -1788,20 +2541,38 @@ fun TaskItemWithSubtasks(
                                         }
                                     },
                                     enabled = !isLocked,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
 
                                 Spacer(modifier = Modifier.width(8.dp))
 
-                                Text(
-                                    text = subtaskTitle,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (isSubChecked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface,
-                                    textDecoration = if (isSubChecked) TextDecoration.LineThrough else TextDecoration.None,
+                                val detectedSubUrl = remember(subtaskTitle) {
+                                    SmartLinkParser.findFirstUrl(subtaskTitle)
+                                }
+                                val cleanSubText = remember(subtaskTitle) {
+                                    val clean = SmartLinkParser.extractCleanText(subtaskTitle)
+                                    if (clean.isNotBlank()) clean else (detectedSubUrl?.let { SmartLinkParser.extractDomain(it) } ?: subtaskTitle)
+                                }
+
+                                Column(
                                     modifier = Modifier
                                         .weight(1f)
                                         .padding(vertical = 6.dp)
-                                )
+                                ) {
+                                    Text(
+                                        text = cleanSubText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (isSubChecked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface,
+                                        textDecoration = if (isSubChecked) TextDecoration.LineThrough else TextDecoration.None
+                                    )
+                                    if (detectedSubUrl != null) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        SmartLinkCard(
+                                            url = detectedSubUrl,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1828,129 +2599,262 @@ fun TaskFormSheet(
     var subtasks by remember { mutableStateOf(initialSubtasks) }
     var showDurationDialog by remember { mutableStateOf(false) }
 
+    var focusSubtaskIndexToRequest by remember { mutableStateOf<Int?>(null) }
+    val subtaskFocusRequesters = remember { mutableStateListOf<FocusRequester>() }
+
+    // Synchronize focus requesters with subtask list
+    while (subtaskFocusRequesters.size < subtasks.size) {
+        subtaskFocusRequesters.add(FocusRequester())
+    }
+
+    LaunchedEffect(focusSubtaskIndexToRequest) {
+        focusSubtaskIndexToRequest?.let { idx ->
+            if (idx in subtaskFocusRequesters.indices) {
+                try {
+                    subtaskFocusRequesters[idx].requestFocus()
+                } catch (e: Exception) {
+                    // Safety check if not composed yet
+                }
+            }
+            focusSubtaskIndexToRequest = null
+        }
+    }
+
+    fun handleSaveAndDismiss() {
+        if (text.isNotBlank()) {
+            onSave(text.trim(), durationDays, subtasks.filter { it.isNotBlank() })
+        }
+        onDismiss()
+    }
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { handleSaveAndDismiss() },
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp)
-                .padding(bottom = 32.dp)
+                .imePadding()
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Task description") },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
-            )
+            // ── Pinned Action Header ──────────────────────────────────────
+            // The Save CTA is permanently docked at the top, immune to keyboard occlusion
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel", style = MaterialTheme.typography.bodyLarge)
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Button(
+                    onClick = { handleSaveAndDismiss() },
+                    enabled = text.isNotBlank(),
+                    shape = RoundedCornerShape(AppDimens.CornerCompact),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    Text("Save", fontWeight = FontWeight.Bold)
+                }
+            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
 
-            // Duration Selection Row
-            DurationPickerRow(
-                durationDays = durationDays,
-                baseDate = baseDate,
-                onClick = { showDurationDialog = true }
-            )
+            // ── Scrollable Form Body ──────────────────────────────────────
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
+            ) {
+                // Task Description (Soft filled surface, no harsh borders)
+                TextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { 
+                        Text(
+                            "Task description or paste link...",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        ) 
+                    },
+                    singleLine = false,
+                    maxLines = 3,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(
+                        onNext = {
+                            if (subtasks.isEmpty()) {
+                                subtasks = listOf("")
+                                focusSubtaskIndexToRequest = 0
+                            } else {
+                                focusSubtaskIndexToRequest = 0
+                            }
+                        }
+                    ),
+                    shape = RoundedCornerShape(AppDimens.CornerCompact),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    )
+                )
 
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Subtasks (Optional)", style = MaterialTheme.typography.titleSmall)
-            Spacer(modifier = Modifier.height(8.dp))
+                // Live Smart Link Resource Preview
+                val detectedFormUrl = remember(text) {
+                    SmartLinkParser.findFirstUrl(text)
+                }
+                if (detectedFormUrl != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Resource Link Preview",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SmartLinkCard(
+                        url = detectedFormUrl,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                subtasks.forEachIndexed { index, subtask ->
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Duration Selection Row
+                DurationPickerRow(
+                    durationDays = durationDays,
+                    baseDate = baseDate,
+                    onClick = { showDurationDialog = true }
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    text = "Subtasks (Optional)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    subtasks.forEachIndexed { index, subtask ->
+                        var isFocused by remember { mutableStateOf(false) }
+                        val isLast = index == subtasks.lastIndex
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min)
+                                .padding(vertical = 2.dp)
+                        ) {
+                            SubtaskBranchConnector(
+                                isLastChild = isLast,
+                                isFocused = isFocused,
+                                modifier = Modifier
+                                    .width(22.dp)
+                                    .fillMaxHeight()
+                            )
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            TextField(
+                                value = subtask,
+                                onValueChange = { newSubtask -> 
+                                    val newSubtasks = subtasks.toMutableList()
+                                    newSubtasks[index] = newSubtask
+                                    subtasks = newSubtasks
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .focusRequester(subtaskFocusRequesters[index])
+                                    .onFocusChanged { isFocused = it.isFocused },
+                                placeholder = { 
+                                    Text(
+                                        "Subtask ${index + 1}",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                    ) 
+                                },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                                keyboardActions = KeyboardActions(
+                                    onNext = {
+                                        if (index == subtasks.lastIndex) {
+                                            subtasks = subtasks + ""
+                                            focusSubtaskIndexToRequest = index + 1
+                                        } else {
+                                            focusSubtaskIndexToRequest = index + 1
+                                        }
+                                    }
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent
+                                )
+                            )
+
+                            if (subtasks.size > 1) {
+                                IconButton(
+                                    onClick = {
+                                        val newSubtasks = subtasks.toMutableList()
+                                        newSubtasks.removeAt(index)
+                                        if (index < subtaskFocusRequesters.size) {
+                                            subtaskFocusRequesters.removeAt(index)
+                                        }
+                                        subtasks = newSubtasks
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = "Remove subtask",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (!isLast) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 28.dp),
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(IntrinsicSize.Min)
-                            .padding(bottom = 8.dp)
+                            .padding(start = 24.dp)
                     ) {
-                        TaskThreadBranch(
-                            isLast = false,
-                            isCompleted = false,
-                            width = 24.dp,
-                            trunkX = 8.dp,
-                            modifier = Modifier.fillMaxHeight()
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        OutlinedTextField(
-                            value = subtask,
-                            onValueChange = { newSubtask -> 
-                                val newSubtasks = subtasks.toMutableList()
-                                newSubtasks[index] = newSubtask
-                                subtasks = newSubtasks
-                            },
-                            modifier = Modifier.weight(1f),
-                            placeholder = { Text("Subtask ${index + 1}") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        if (subtasks.size > 1) {
-                            IconButton(
-                                onClick = {
-                                    val newSubtasks = subtasks.toMutableList()
-                                    newSubtasks.removeAt(index)
-                                    subtasks = newSubtasks
-                                }
-                            ) {
-                                Icon(Icons.Filled.Close, contentDescription = "Remove subtask", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                        TextButton(onClick = { 
+                            subtasks = subtasks + "" 
+                            focusSubtaskIndexToRequest = subtasks.size
+                        }) {
+                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Add another subtask", style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(IntrinsicSize.Min)
-                ) {
-                    TaskThreadBranch(
-                        isLast = true,
-                        isCompleted = false,
-                        width = 24.dp,
-                        trunkX = 8.dp,
-                        modifier = Modifier.fillMaxHeight()
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    TextButton(onClick = { subtasks = subtasks + "" }) {
-                        Text("+ Add another subtask")
-                    }
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel")
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    onClick = { 
-                        if (text.isNotBlank()) {
-                            onSave(text, durationDays, subtasks.filter { it.isNotBlank() })
-                        }
-                    },
-                    enabled = text.isNotBlank()
-                ) {
-                    Text("Save")
-                }
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }

@@ -9,12 +9,31 @@ import java.util.Calendar
 
 object ReminderScheduler {
 
+    const val PLAN_ID_DAILY_KICKOFF = -1001L
+    const val PLAN_ID_DAILY_REFLECTION = -1002L
+
+    fun scheduleDailyKickoff(context: Context, time: String = "08:00") {
+        schedule(context, PLAN_ID_DAILY_KICKOFF, "Morning Kickoff", time)
+    }
+
+    fun cancelDailyKickoff(context: Context) {
+        cancel(context, PLAN_ID_DAILY_KICKOFF)
+    }
+
+    fun scheduleDailyReflection(context: Context, time: String = "21:00") {
+        schedule(context, PLAN_ID_DAILY_REFLECTION, "Evening Reflection", time)
+    }
+
+    fun cancelDailyReflection(context: Context) {
+        cancel(context, PLAN_ID_DAILY_REFLECTION)
+    }
+
     /**
      * Schedules a daily exact alarm for a plan reminder.
      *
      * The alarm fires at the specified [reminderTime] (HH:mm). If that time has already
      * passed today, the first alarm fires tomorrow at the same time. The alarm is registered
-     * under [planId].toInt() as the request code, so each plan has an independent slot.
+     * under a stable Int request code derived from [planId], so each plan has an independent slot.
      *
      * The [ReminderReceiver] will re-schedule the next day's alarm automatically after firing.
      */
@@ -28,10 +47,10 @@ object ReminderScheduler {
 
         val triggerAtMillis = nextOccurrenceMillis(hour, minute)
 
-        val intent = buildAlarmIntent(context, planId, planHeading)
+        val intent = buildAlarmIntent(context, planId, planHeading, reminderTime)
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            planId.toInt(),
+            stableRequestCode(planId),   // BUG-14: safe Int, no overflow
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -70,7 +89,7 @@ object ReminderScheduler {
         val intent = Intent(context, ReminderReceiver::class.java)
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            planId.toInt(),
+            stableRequestCode(planId),   // BUG-14: consistent with schedule()
             intent,
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         ) ?: return // Already cancelled or never scheduled
@@ -109,12 +128,22 @@ object ReminderScheduler {
         return cal.timeInMillis
     }
 
-    /** Builds the broadcast intent carrying planId and planHeading extras. */
-    fun buildAlarmIntent(context: Context, planId: Long, planHeading: String): Intent =
+    /**
+     * BUG-14 fix: Derive a stable, collision-resistant Int request code from a Long planId
+     * by xor-folding the high and low 32-bit halves. This avoids silent overflow from .toInt().
+     */
+    fun stableRequestCode(planId: Long): Int =
+        ((planId ushr 32) xor (planId and 0xFFFFFFFFL)).toInt()
+
+    /**
+     * BUG-06 fix: Builds the broadcast intent carrying planId, planHeading, AND reminderTime.
+     * The reminderTime is required so ReminderReceiver can reschedule accurately without drifting.
+     */
+    fun buildAlarmIntent(context: Context, planId: Long, planHeading: String, reminderTime: String): Intent =
         Intent(context, ReminderReceiver::class.java).apply {
             action = "com.example.plannerapp.REMINDER_ALARM"
             putExtra("planId", planId)
             putExtra("planHeading", planHeading)
-            putExtra("reminderTime", "")  // filled by ReminderReceiver when rescheduling
+            putExtra("reminderTime", reminderTime)  // ✅ real time forwarded for accurate rescheduling
         }
 }

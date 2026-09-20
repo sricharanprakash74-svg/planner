@@ -32,7 +32,8 @@ class CommunityDiscussionViewModel(
     private val postId: String,
     private val socialRepository: SocialRepository,
     private val plannerRepository: PlannerRepository,
-    private val userDao: UserDao
+    private val userDao: UserDao,
+    private val creditRepository: com.example.plannerapp.credits.CreditRepository? = null
 ) : ViewModel() {
 
     private val planImporter = PlanImporter()
@@ -140,7 +141,8 @@ class CommunityDiscussionViewModel(
                     template = template,
                     targetUserId = targetUserId,
                     startDate = startDate,
-                    socialRepository = socialRepository
+                    socialRepository = socialRepository,
+                    creditRepository = creditRepository
                 )
 
                 if (result.isSuccess) {
@@ -153,6 +155,75 @@ class CommunityDiscussionViewModel(
                 _internalState.update { it.copy(errorMessage = e.message) }
             } finally {
                 _internalState.update { it.copy(isJoining = false) }
+            }
+        }
+    }
+
+    val isFollowingCreator: StateFlow<Boolean> = socialRepository.getPostById(postId)
+        .flatMapLatest { post ->
+            if (post != null) socialRepository.isFollowingCreator(post.author.userId)
+            else flowOf(false)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun toggleFollowCreator() {
+        val post = uiState.value.post ?: return
+        viewModelScope.launch {
+            try {
+                val isFollowing = isFollowingCreator.value
+                if (isFollowing) {
+                    socialRepository.unfollowCreator(post.author.userId)
+                } else {
+                    socialRepository.followCreator(post.author.userId)
+                }
+            } catch (e: Exception) {
+                _internalState.update { it.copy(errorMessage = e.message) }
+            }
+        }
+    }
+
+    fun onToggleSave() {
+        viewModelScope.launch {
+            try {
+                socialRepository.toggleSavePost(postId)
+            } catch (e: Exception) {
+                _internalState.update { it.copy(errorMessage = e.message) }
+            }
+        }
+    }
+
+    fun deleteComment(commentId: String) {
+        viewModelScope.launch {
+            try {
+                val activeUser = userDao.getActiveUserOnce()
+                val currentUserId = activeUser?.cloudUserId ?: activeUser?.userId?.toString() ?: "local_user"
+                socialRepository.deleteComment(postId, commentId, currentUserId)
+            } catch (e: Exception) {
+                _internalState.update { it.copy(errorMessage = e.message) }
+            }
+        }
+    }
+
+    fun reportContent(targetId: String, targetType: String, reason: String) {
+        viewModelScope.launch {
+            try {
+                val activeUser = userDao.getActiveUserOnce()
+                val currentUserId = activeUser?.cloudUserId ?: activeUser?.userId?.toString() ?: "local_user"
+                socialRepository.reportContent(targetId, targetType, reason, currentUserId)
+            } catch (e: Exception) {
+                _internalState.update { it.copy(errorMessage = e.message) }
+            }
+        }
+    }
+
+    fun blockAuthor() {
+        val post = uiState.value.post ?: return
+        viewModelScope.launch {
+            try {
+                val activeUser = userDao.getActiveUserOnce()
+                val currentUserId = activeUser?.cloudUserId ?: activeUser?.userId?.toString() ?: "local_user"
+                socialRepository.blockUser(post.author.userId, currentUserId)
+            } catch (e: Exception) {
+                _internalState.update { it.copy(errorMessage = e.message) }
             }
         }
     }
@@ -170,12 +241,13 @@ class CommunityDiscussionViewModelFactory(
     private val postId: String,
     private val socialRepository: SocialRepository,
     private val plannerRepository: PlannerRepository,
-    private val userDao: UserDao
+    private val userDao: UserDao,
+    private val creditRepository: com.example.plannerapp.credits.CreditRepository? = null
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(CommunityDiscussionViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return CommunityDiscussionViewModel(postId, socialRepository, plannerRepository, userDao) as T
+            return CommunityDiscussionViewModel(postId, socialRepository, plannerRepository, userDao, creditRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

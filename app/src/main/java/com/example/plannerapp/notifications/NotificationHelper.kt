@@ -16,13 +16,19 @@ object NotificationHelper {
     private const val CHANNEL_NAME = "Plan Reminders"
     private const val CHANNEL_DESCRIPTION = "Daily reminder notifications for your active plans"
 
+    const val CHANNEL_CREATOR_PAYOUTS = "creator_payouts_channel"
+    const val CHANNEL_COHORT_ALERTS = "cohort_dropoff_alerts"
+    const val CHANNEL_STUDENT_MILESTONES = "creator_student_milestones"
+
     /**
-     * Creates the notification channel. Safe to call multiple times — Android ignores
+     * Creates notification channels. Safe to call multiple times — Android ignores
      * subsequent calls if the channel already exists.
      */
     fun createChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            val reminderChannel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_DEFAULT
@@ -30,8 +36,35 @@ object NotificationHelper {
                 description = CHANNEL_DESCRIPTION
                 enableVibration(true)
             }
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
+            manager.createNotificationChannel(reminderChannel)
+
+            val payoutsChannel = NotificationChannel(
+                CHANNEL_CREATOR_PAYOUTS,
+                "Creator Payouts & Settlement",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Escrow clearing, bank transfers, and Stripe Connect settlement updates"
+                enableVibration(true)
+            }
+            manager.createNotificationChannel(payoutsChannel)
+
+            val cohortChannel = NotificationChannel(
+                CHANNEL_COHORT_ALERTS,
+                "Cohort Retention Alerts",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Performance warnings when student drop-off exceeds threshold"
+            }
+            manager.createNotificationChannel(cohortChannel)
+
+            val milestonesChannel = NotificationChannel(
+                CHANNEL_STUDENT_MILESTONES,
+                "Student Milestones",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Automated participant progress breakthroughs and student milestones"
+            }
+            manager.createNotificationChannel(milestonesChannel)
         }
     }
 

@@ -21,6 +21,7 @@ class BootReceiver : BroadcastReceiver() {
             intent.action != "android.intent.action.QUICKBOOT_POWERON"
         ) return
 
+        val pendingResult = goAsync()
         // Query the Room DB on an IO coroutine and re-schedule all active reminders
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -41,6 +42,8 @@ class BootReceiver : BroadcastReceiver() {
                 com.example.plannerapp.widget.StreakWidgetUpdater.update(context)
             } catch (e: Exception) {
                 e.printStackTrace()
+            } finally {
+                pendingResult.finish()
             }
         }
     }

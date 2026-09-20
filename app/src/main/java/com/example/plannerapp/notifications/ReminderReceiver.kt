@@ -24,7 +24,12 @@ class ReminderReceiver : BroadcastReceiver() {
         if (planId == -1L) return
 
         // 1. Post the notification
-        NotificationHelper.postReminderNotification(context, planId, planHeading)
+        val displayHeading = when (planId) {
+            ReminderScheduler.PLAN_ID_DAILY_KICKOFF -> "Morning Kickoff: Review your daily goals and start your first task!"
+            ReminderScheduler.PLAN_ID_DAILY_REFLECTION -> "Evening Reflection: Wrap up your habits and review your progress!"
+            else -> planHeading
+        }
+        NotificationHelper.postReminderNotification(context, planId, displayHeading)
 
         // 2. Reschedule for tomorrow (daily repeat)
         if (reminderTime.isNotBlank()) {
@@ -38,22 +43,41 @@ class ReminderReceiver : BroadcastReceiver() {
             // If reminderTime wasn't forwarded in intent, reschedule for 24h later as fallback
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
             val nextTrigger = System.currentTimeMillis() + 24 * 60 * 60 * 1000L
+            val requestCode = ReminderScheduler.stableRequestCode(planId)  // BUG-14: safe Int
             val pendingIntent = android.app.PendingIntent.getBroadcast(
                 context,
-                planId.toInt(),
+                requestCode,
                 intent,
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
             )
-            alarmManager.setExactAndAllowWhileIdle(
-                android.app.AlarmManager.RTC_WAKEUP,
-                nextTrigger,
-                pendingIntent
-            )
+            // BUG-05: check exact alarm permission on Android 12+ before calling setExactAndAllowWhileIdle
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        android.app.AlarmManager.RTC_WAKEUP, nextTrigger, pendingIntent
+                    )
+                } else {
+                    alarmManager.setAndAllowWhileIdle(
+                        android.app.AlarmManager.RTC_WAKEUP, nextTrigger, pendingIntent
+                    )
+                }
+            } else {
+                alarmManager.setExactAndAllowWhileIdle(
+                    android.app.AlarmManager.RTC_WAKEUP, nextTrigger, pendingIntent
+                )
+            }
         }
 
         // Refresh the home screen widget for the daily rollover
+        val pendingResult = goAsync()
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            com.example.plannerapp.widget.StreakWidgetUpdater.update(context)
+            try {
+                com.example.plannerapp.widget.StreakWidgetUpdater.update(context)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                pendingResult.finish()
+            }
         }
     }
 }

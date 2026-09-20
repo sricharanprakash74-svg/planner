@@ -12,13 +12,17 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Assignment
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,18 +37,134 @@ import com.example.plannerapp.data.social.CloudUser
 import com.example.plannerapp.data.social.VoteType
 import com.example.plannerapp.ui.feed.CommunityPlanCard
 
+private val REPORT_REASONS = listOf(
+    "Spam or misleading content",
+    "Harassment or abusive behavior",
+    "Inappropriate or adult content",
+    "Copyright or intellectual property violation",
+    "Other violation of community guidelines"
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreatorProfileScreen(
     viewModel: CreatorProfileViewModel,
     onBack: () -> Unit,
     onPostClick: (String) -> Unit,
+    onNavigateToChat: (conversationId: String, recipientUserId: String, recipientName: String) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val haptic = LocalHapticFeedback.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    var showOptionsMenu by remember { mutableStateOf(false) }
+    var showReportDialog by remember { mutableStateOf(false) }
+    var showBlockDialog by remember { mutableStateOf(false) }
+    var selectedReportReason by remember { mutableStateOf(REPORT_REASONS.first()) }
+
+    // Handle toast or error messages via Snackbar
+    LaunchedEffect(uiState.toastMessage) {
+        uiState.toastMessage?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.clearToast()
+        }
+    }
+
+    LaunchedEffect(uiState.errorMessage) {
+        uiState.errorMessage?.let { err ->
+            snackbarHostState.showSnackbar(err)
+            viewModel.clearError()
+        }
+    }
+
+    // Report Dialog
+    if (showReportDialog) {
+        AlertDialog(
+            onDismissRequest = { showReportDialog = false },
+            title = {
+                Text("Report Creator", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Why are you reporting this profile?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    REPORT_REASONS.forEach { reason ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedReportReason = reason }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(
+                                selected = (selectedReportReason == reason),
+                                onClick = { selectedReportReason = reason }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = reason, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.reportCreator(selectedReportReason)
+                        showReportDialog = false
+                    }
+                ) {
+                    Text("Submit Report")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReportDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Block Confirmation Dialog
+    if (showBlockDialog) {
+        AlertDialog(
+            onDismissRequest = { showBlockDialog = false },
+            title = {
+                Text("Block Creator?", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    text = "You will no longer see plans or posts created by @${uiState.creator?.username ?: "this user"} in your feed or search results.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showBlockDialog = false
+                        viewModel.blockCreator { onBack() }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text("Block")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBlockDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -59,6 +179,42 @@ fun CreatorProfileScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
+                },
+                actions = {
+                    if (uiState.creator != null && !uiState.isBlocked) {
+                        Box {
+                            IconButton(onClick = { showOptionsMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Options")
+                            }
+                            DropdownMenu(
+                                expanded = showOptionsMenu,
+                                onDismissRequest = { showOptionsMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Report Creator") },
+                                    leadingIcon = { Icon(Icons.Outlined.Flag, contentDescription = null) },
+                                    onClick = {
+                                        showOptionsMenu = false
+                                        showReportDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Block @${uiState.creator?.username}") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.Block,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    },
+                                    onClick = {
+                                        showOptionsMenu = false
+                                        showBlockDialog = true
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             )
         },
@@ -72,6 +228,45 @@ fun CreatorProfileScreen(
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator()
+            }
+            return@Scaffold
+        }
+
+        if (uiState.isBlocked) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Block,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "You have blocked this creator",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Their public plans and profile are hidden.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedButton(onClick = onBack) {
+                        Text("Go Back")
+                    }
+                }
             }
             return@Scaffold
         }
@@ -115,9 +310,13 @@ fun CreatorProfileScreen(
                 CreatorHeaderSection(
                     creator = creator,
                     isFollowing = uiState.isFollowing,
+                    canMessage = uiState.canMessage,
                     onToggleFollow = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         viewModel.toggleFollow()
+                    },
+                    onMessageClick = {
+                        viewModel.startConversation(onNavigateToChat)
                     }
                 )
             }
@@ -125,31 +324,72 @@ fun CreatorProfileScreen(
             // ── Metrics Stat Bar ────────────────────────────────
             item {
                 CreatorStatsRow(
-                    publishedPlansCount = uiState.posts.size,
-                    totalJoins = totalJoins,
-                    followersCount = creator.followerCount
+                    publishedPlansCount = if (uiState.isPrivateAccount) 0 else uiState.posts.size,
+                    followersCount = creator.followerCount,
+                    followingCount = creator.followingCount,
+                    totalJoins = if (uiState.isPrivateAccount) 0 else totalJoins
                 )
             }
 
             // ── Published Plans Header ──────────────────────────
-            item {
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "Published Plans (${uiState.posts.size})",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+            if (!uiState.isPrivateAccount) {
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Published Plans (${uiState.posts.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
 
-            // ── Plans List or Empty Placeholder ─────────────────
-            if (uiState.posts.isEmpty()) {
+            // ── Plans List or Private / Empty Placeholder ─────────────────
+            if (uiState.isPrivateAccount) {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Lock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(40.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "This Account is Private",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Follow this creator to see their published plans and curriculum updates.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            } else if (uiState.posts.isEmpty()) {
                 item {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
@@ -200,7 +440,9 @@ fun CreatorProfileScreen(
 private fun CreatorHeaderSection(
     creator: CloudUser,
     isFollowing: Boolean,
-    onToggleFollow: () -> Unit
+    canMessage: Boolean,
+    onToggleFollow: () -> Unit,
+    onMessageClick: () -> Unit
 ) {
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -269,7 +511,11 @@ private fun CreatorHeaderSection(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Following", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = "Following",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 } else {
                     Button(
@@ -283,7 +529,26 @@ private fun CreatorHeaderSection(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Follow", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Follow",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                if (canMessage) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    IconButton(
+                        onClick = onMessageClick,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Email,
+                            contentDescription = "Message",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
@@ -303,8 +568,9 @@ private fun CreatorHeaderSection(
 @Composable
 private fun CreatorStatsRow(
     publishedPlansCount: Int,
-    totalJoins: Int,
-    followersCount: Int
+    followersCount: Int,
+    followingCount: Int,
+    totalJoins: Int
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
@@ -323,17 +589,32 @@ private fun CreatorStatsRow(
                 value = publishedPlansCount.toString(),
                 label = "Plans"
             )
-            VerticalDivider(modifier = Modifier.height(30.dp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
-            StatMetricItem(
-                icon = Icons.AutoMirrored.Outlined.TrendingUp,
-                value = formatMetricNumber(totalJoins),
-                label = "Total Joins"
+            VerticalDivider(
+                modifier = Modifier.height(30.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
             )
-            VerticalDivider(modifier = Modifier.height(30.dp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
             StatMetricItem(
                 icon = Icons.Outlined.People,
                 value = formatMetricNumber(followersCount),
                 label = "Followers"
+            )
+            VerticalDivider(
+                modifier = Modifier.height(30.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+            )
+            StatMetricItem(
+                icon = Icons.Outlined.Person,
+                value = formatMetricNumber(followingCount),
+                label = "Following"
+            )
+            VerticalDivider(
+                modifier = Modifier.height(30.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+            )
+            StatMetricItem(
+                icon = Icons.AutoMirrored.Outlined.TrendingUp,
+                value = formatMetricNumber(totalJoins),
+                label = "Joins"
             )
         }
     }

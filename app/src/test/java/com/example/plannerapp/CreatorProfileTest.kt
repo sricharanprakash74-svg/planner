@@ -2,8 +2,10 @@ package com.example.plannerapp
 
 import com.example.plannerapp.data.social.CloudUser
 import com.example.plannerapp.data.social.InMemorySocialRepository
+import com.example.plannerapp.data.social.PlanVersionUpdate
+import com.example.plannerapp.data.social.RelationshipStatus
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -21,7 +23,7 @@ class CreatorProfileTest {
     }
 
     @Test
-    fun getUserProfile_returnsVerifiedCreatorDetails() = runBlocking {
+    fun getUserProfile_returnsVerifiedCreatorDetails() = runTest {
         val sarah = socialRepository.getUserProfile("user_sarah_fit").first()
         assertNotNull(sarah)
         assertEquals("Sarah Jenkins", sarah!!.displayName)
@@ -32,7 +34,7 @@ class CreatorProfileTest {
     }
 
     @Test
-    fun getPostsByCreator_filtersPostsExclusivelyForCreator() = runBlocking {
+    fun getPostsByCreator_filtersPostsExclusivelyForCreator() = runTest {
         val sarahPosts = socialRepository.getPostsByCreator("user_sarah_fit").first()
         val calPosts = socialRepository.getPostsByCreator("user_deep_work").first()
 
@@ -46,7 +48,7 @@ class CreatorProfileTest {
     }
 
     @Test
-    fun followAndUnfollowCreator_updatesStateAndFollowerCounts() = runBlocking {
+    fun followAndUnfollowCreator_updatesStateAndFollowerCounts() = runTest {
         val targetCreatorId = "user_sarah_fit"
         val initialProfile = socialRepository.getUserProfile(targetCreatorId).first()!!
         val initialFollowers = initialProfile.followerCount
@@ -76,7 +78,7 @@ class CreatorProfileTest {
     }
 
     @Test
-    fun upsertCloudUser_registersNewCreatorAndSupportsPlanCreation() = runBlocking {
+    fun upsertCloudUser_registersNewCreatorAndSupportsPlanCreation() = runTest {
         val newCreator = CloudUser(
             userId = "user_custom_dev",
             username = "android_lead",
@@ -107,5 +109,59 @@ class CreatorProfileTest {
         val creatorPosts = socialRepository.getPostsByCreator("user_custom_dev").first()
         assertEquals(1, creatorPosts.size)
         assertEquals("Clean Architecture Blueprint", creatorPosts.first().title)
+    }
+
+    @Test
+    fun viewerRelationship_transitionsAccurately() = runTest {
+        val targetId = "user_sarah_fit"
+
+        // Initially Stranger
+        val initialRelation = socialRepository.getViewerRelationship(targetId).first()
+        assertEquals(RelationshipStatus.STRANGER, initialRelation)
+
+        // Follow -> Following
+        socialRepository.followCreator(targetId)
+        val followingRelation = socialRepository.getViewerRelationship(targetId).first()
+        assertEquals(RelationshipStatus.FOLLOWING, followingRelation)
+
+        // Block -> Blocked
+        socialRepository.blockUser(targetId, "current_user")
+        val blockedRelation = socialRepository.getViewerRelationship(targetId).first()
+        assertEquals(RelationshipStatus.BLOCKED, blockedRelation)
+
+        // Unblock -> Stranger
+        socialRepository.unblockUser(targetId, "current_user")
+        val unblockedRelation = socialRepository.getViewerRelationship(targetId).first()
+        assertEquals(RelationshipStatus.STRANGER, unblockedRelation)
+    }
+
+    @Test
+    fun canMessageUser_blockedUserCannotBeMessaged() = runTest {
+        val targetId = "user_cal_protocols"
+
+        assertTrue(socialRepository.canMessageUser(targetId).first())
+
+        socialRepository.blockUser(targetId, "current_user")
+        assertFalse(socialRepository.canMessageUser(targetId).first())
+
+        socialRepository.unblockUser(targetId, "current_user")
+        assertTrue(socialRepository.canMessageUser(targetId).first())
+    }
+
+    @Test
+    fun planVersionUpdate_modelHoldsDeltaTasksAndChangelog() {
+        val update = PlanVersionUpdate(
+            planId = "plan_123",
+            latestVersionTag = "1.2.0",
+            currentLocalVersion = "1.0.0",
+            changelog = "Added sprint endurance intervals",
+            totalTasksInLatest = 5
+        )
+
+        assertEquals("plan_123", update.planId)
+        assertEquals("1.2.0", update.latestVersionTag)
+        assertEquals("1.0.0", update.currentLocalVersion)
+        assertEquals("Added sprint endurance intervals", update.changelog)
+        assertEquals(5, update.totalTasksInLatest)
     }
 }

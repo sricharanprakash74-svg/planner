@@ -11,11 +11,17 @@ data class UserEntity(
     @PrimaryKey(autoGenerate = true) val userId: Long = 0,
     val cloudUserId: String? = null,       // null = guest, non-null = authenticated
     val displayName: String = "Guest",
+    val username: String? = null,          // Unique username chosen during onboarding
     val email: String? = null,
     val avatarUrl: String? = null,
     val userTimezone: String = java.util.TimeZone.getDefault().id,
     val isCreator: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    // ── Onboarding ────────────────────────────────────────────────────
+    val categories: String = "[]",         // JSON List<String>, e.g. ["FITNESS","LEARNING"]
+    val interests: String = "[]",          // JSON List<String>, e.g. ["gym","deepwork"]
+    val experienceLevel: String = "BEGINNER", // BEGINNER | INTERMEDIATE | ADVANCED
+    val onboardingComplete: Int = 0        // 0 = needs onboarding, 1 = complete
 )
 
 // ── Plan ────────────────────────────────────────────
@@ -193,7 +199,10 @@ data class DailyTaskView(
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("localPlanId"), Index("postId"), Index(value = ["localPlanId", "postId"], unique = true)]
+    indices = [
+        Index("localPlanId"),
+        Index(value = ["postId"], unique = true)
+    ]
 )
 data class JoinedCommunityEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

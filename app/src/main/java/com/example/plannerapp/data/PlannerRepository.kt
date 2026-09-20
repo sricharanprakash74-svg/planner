@@ -1,6 +1,7 @@
 package com.example.plannerapp.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -16,6 +17,14 @@ class PlannerRepository(private val dao: PlannerDao) {
 
     fun getTasksForPlanAndDate(planId: Long, date: LocalDate): Flow<List<DailyTaskView>> {
         return dao.getTasksForPlanAndDate(planId, date.format(dateFormatter))
+    }
+
+    suspend fun getTasksForPlanAndDateOnce(planId: Long, date: LocalDate): List<DailyTaskView> {
+        return dao.getTasksForPlanAndDateOnce(planId, date.format(dateFormatter))
+    }
+
+    suspend fun getTasksForPlanAndDateOnce(planId: Long, dateStr: String): List<DailyTaskView> {
+        return dao.getTasksForPlanAndDateOnce(planId, dateStr)
     }
 
     suspend fun updateTaskStatus(checkinId: Long, isCompleted: Boolean) {
@@ -93,6 +102,15 @@ class PlannerRepository(private val dao: PlannerDao) {
 
     suspend fun updatePlansPinStatus(planIds: List<Long>, isPinned: Boolean) {
         dao.updatePlansPinStatus(planIds, isPinned)
+    }
+
+    suspend fun setPlanPublicStatus(planId: Long, isPublic: Boolean) {
+        val plan = dao.getPlanById(planId) ?: return
+        dao.updatePlan(plan.copy(isPublic = isPublic, updatedAt = System.currentTimeMillis(), syncStatus = "PENDING"))
+    }
+
+    suspend fun getTaskTemplatesForPlan(planId: Long): List<TaskTemplateEntity> {
+        return dao.getTemplatesForPlan(planId)
     }
 
     suspend fun deletePlan(planId: Long) {
@@ -262,15 +280,25 @@ class PlannerRepository(private val dao: PlannerDao) {
         template: com.example.plannerapp.data.template.PlanTemplateDto,
         targetUserId: Long,
         startDate: LocalDate = LocalDate.now(),
-        socialRepository: com.example.plannerapp.data.social.SocialRepository? = null
+        socialRepository: com.example.plannerapp.data.social.SocialRepository? = null,
+        creditRepository: com.example.plannerapp.credits.CreditRepository? = null
     ): Result<Long> {
         return try {
+            // Enforce one join per user/post: return existing plan if already joined
+            val existing = dao.getJoinedCommunityByPostId(postId)
+            if (existing != null) {
+                val existingPlan = dao.getPlanById(existing.localPlanId)
+                if (existingPlan != null && existingPlan.userId == targetUserId) {
+                    return Result.success(existing.localPlanId)
+                }
+            }
+
             val importer = com.example.plannerapp.data.template.PlanImporter()
             val newLocalPlanId = importer.importToLocalPlan(
                 template = template,
                 targetUserId = targetUserId,
                 startDate = startDate,
-                sourcePlanId = postId.hashCode().toLong(),
+                sourcePlanId = stableStringHash64(postId),
                 dao = dao
             )
 
@@ -286,6 +314,16 @@ class PlannerRepository(private val dao: PlannerDao) {
 
             // Increment remote join count
             socialRepository?.incrementJoinCount(postId)
+
+            // Award viral clone bonus (+100 credits) to creator of shared plan
+            val creatorId = template.author.userId.toLongOrNull()
+            if (creatorId != null && creatorId != targetUserId) {
+                creditRepository?.awardViralCloneBonus(
+                    creatorUserId = creatorId,
+                    joinerUserId = targetUserId,
+                    postId = postId
+                )
+            }
 
             Result.success(newLocalPlanId)
         } catch (e: Exception) {
@@ -315,5 +353,52 @@ class PlannerRepository(private val dao: PlannerDao) {
 
     fun getAllJoinedCommunities(): Flow<List<JoinedCommunityEntity>> {
         return dao.getAllJoinedCommunities()
+    }
+
+    /**
+     * Returns a [Flow] of plan completion fraction in [0.0, 1.0] for [planId].
+     *
+     * This is the single source of truth for the fluid level shown on the
+     * FluidProgressCard. It is backed by the Room [daily_checkins] table and
+     * therefore behaves identically offline and online:
+     *
+     *  - Offline: when the user checks off a task locally, Room writes the row,
+     *    this Flow emits a new fraction, and the fluid level rises immediately.
+     *    No network required.
+     *
+     *  - Online (after sync): the background sync worker writes the server's
+     *    authoritative completion state into the same Room tables. This Flow
+     *    emits again and the fluid level reflects the reconciled state — without
+     *    any visual jump, because the spring animation absorbs small delta changes.
+     *
+     * The UI layer (FluidProgressCard) never needs to distinguish between the
+     * two modes because it only observes this Flow.
+     */
+    fun getPlanCompletionFraction(planId: Long): Flow<Float> {
+        return dao.getAllCheckinsForPlan(planId)
+            .map { checkins ->
+                if (checkins.isEmpty()) 0f
+                else checkins.count { it.isCompleted }.toFloat() / checkins.size.toFloat()
+            }
+    }
+
+    companion object {
+        /**
+         * BUG-11 fix: Derives a collision-resistant 64-bit Long ID from any String (UUID or custom).
+         * If the string is a valid UUID, XORs the MSB and LSB. Otherwise, computes a 64-bit FNV-1a hash.
+         */
+        fun stableStringHash64(input: String): Long {
+            return try {
+                val uuid = java.util.UUID.fromString(input)
+                uuid.mostSignificantBits xor uuid.leastSignificantBits
+            } catch (_: Exception) {
+                var hash = -0x2b467e45218d6a8bL // 0xcbf29ce484222325L
+                for (ch in input) {
+                    hash = hash xor ch.code.toLong()
+                    hash = hash * 0x100000001b3L
+                }
+                hash
+            }
+        }
     }
 }

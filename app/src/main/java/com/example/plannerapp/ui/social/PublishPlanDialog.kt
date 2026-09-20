@@ -43,6 +43,12 @@ fun PublishPlanDialog(
     val categories = listOf("Productivity", "Health & Fitness", "Mindfulness", "Career & Study", "General")
     val scope = rememberCoroutineScope()
     val planExporter = remember { PlanExporter() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val creditRepository = remember(context) {
+        com.example.plannerapp.credits.CreditRepository(
+            com.example.plannerapp.data.PlannerDatabase.getDatabase(context).creditDao()
+        )
+    }
     val activeUserFlow by userDao.getActiveUser().collectAsState(initial = null)
     val isCreator = activeUserFlow?.isCreator == true
 
@@ -251,6 +257,9 @@ fun PublishPlanDialog(
 
                                 if (postResult.isSuccess) {
                                     val post = postResult.getOrThrow()
+                                    activeUserFlow?.let { user ->
+                                        creditRepository.awardPlanShare(user.userId, post.postId)
+                                    }
                                     onPublished(post.postId)
                                 } else {
                                     errorMessage = postResult.exceptionOrNull()?.message ?: "Failed to publish post"

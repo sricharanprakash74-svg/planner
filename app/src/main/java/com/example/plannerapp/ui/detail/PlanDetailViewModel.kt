@@ -13,6 +13,10 @@ import com.example.plannerapp.data.PlannerRepository
 import com.example.plannerapp.credits.CreditRepository
 import com.example.plannerapp.data.PlannerDatabase
 import com.example.plannerapp.data.TaskTemplateEntity
+import com.example.plannerapp.data.social.PlanVersionUpdate
+import com.example.plannerapp.data.social.SocialRepository
+import com.example.plannerapp.data.template.PlanTemplateDto
+import com.example.plannerapp.data.template.TaskTemplateDto
 import com.example.plannerapp.notifications.ReminderScheduler
 import com.example.plannerapp.ui.state.Resource
 import com.example.plannerapp.widget.StreakWidgetUpdater
@@ -49,13 +53,15 @@ data class PlanDetailUiState(
     val currentDayNumber: Int = 1,
     val totalDays: Int = 1,
     val overallProgressPercent: Int = 0,
-    val joinedCommunity: JoinedCommunityEntity? = null
+    val joinedCommunity: JoinedCommunityEntity? = null,
+    val planUpdate: PlanVersionUpdate? = null
 )
 
 class PlanDetailViewModel(
     private val planId: Long,
     private val repository: PlannerRepository,
-    private val appContext: Context
+    private val appContext: Context,
+    private val socialRepository: SocialRepository? = null
 ) : ViewModel() {
 
     private val _selectedDate = MutableStateFlow(LocalDate.now())
@@ -84,13 +90,37 @@ class PlanDetailViewModel(
         PlanContextData(checkins, completions, joined)
     }
 
+    private val prefs = appContext.getSharedPreferences("plan_version_prefs", Context.MODE_PRIVATE)
+    private val _dismissedVersions = MutableStateFlow<Set<String>>(emptySet())
+    private val _currentLocalVersion = MutableStateFlow(
+        prefs.getString("plan_${planId}_version", "1.0.0") ?: "1.0.0"
+    )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val planUpdateFlow: Flow<PlanVersionUpdate?> = combine(
+        repository.getJoinedCommunityForPlan(planId),
+        _currentLocalVersion,
+        _dismissedVersions
+    ) { joined, version, dismissed ->
+        Triple(joined, version, dismissed)
+    }.flatMapLatest { (joined, version, dismissed) ->
+        if (joined != null && socialRepository != null) {
+            socialRepository.checkForPlanUpdate(joined.postId, version).map { update ->
+                if (update != null && update.latestVersionTag !in dismissed) update else null
+            }
+        } else {
+            flowOf(null)
+        }
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<Resource<PlanDetailUiState>> = combine(
         currentPlan,
         _selectedDate,
         planContextFlow,
-        _selectedDate.flatMapLatest { date -> repository.getTasksForPlanAndDate(planId, date) }
-    ) { plan, selectedDate, contextData, tasksForDate ->
+        _selectedDate.flatMapLatest { date -> repository.getTasksForPlanAndDate(planId, date) },
+        planUpdateFlow
+    ) { plan, selectedDate, contextData, tasksForDate, planUpdate ->
         val today = LocalDate.now()
 
         val parsedStartDate = try {
@@ -162,7 +192,8 @@ class PlanDetailViewModel(
                 currentDayNumber = currentDayNum,
                 totalDays = totalDaysCount,
                 overallProgressPercent = overallProgress,
-                joinedCommunity = contextData.joinedCommunity
+                joinedCommunity = contextData.joinedCommunity,
+                planUpdate = planUpdate
             )
         ) as Resource<PlanDetailUiState>
     }
@@ -196,12 +227,23 @@ class PlanDetailViewModel(
                     completedTasksCount = completedTasks,
                     totalTasksCount = totalTasks
                 )
-                // Additive hook: reward streak bonus & refresh home screen widget
+                // Additive hook: reward credit milestones & refresh home screen widget
                 val db = PlannerDatabase.getDatabase(appContext)
                 val user = db.userDao().getActiveUserOnce()
                 if (user != null) {
                     val creditRepo = CreditRepository(db.creditDao())
-                    creditRepo.awardStreakMilestone(userId = user.userId, streakDays = 1, bonusPoints = 25)
+                    val dateStr = _selectedDate.value.format(dateFormatter)
+
+                    // If all scheduled tasks were completed for the day, award +10 Credits (idempotent)
+                    if (completedTasks > 0 && completedTasks == totalTasks) {
+                        creditRepo.awardDayCompletion(userId = user.userId, date = dateStr)
+                    }
+
+                    // Calculate active streak including this locked day and award milestones (+50 for 7 days, +100 for 30 days)
+                    val streak = repository.getStreak(user.userId, _selectedDate.value.plusDays(1))
+                    if (streak == 7 || streak == 30) {
+                        creditRepo.awardStreakMilestone(userId = user.userId, streakDays = streak)
+                    }
                 }
                 StreakWidgetUpdater.update(appContext)
             } catch (e: Exception) {
@@ -218,15 +260,23 @@ class PlanDetailViewModel(
             try {
                 repository.updateTaskStatus(checkinId, isCompleted)
 
-                // Additive hook: award credits on completion & refresh home screen widget
+                // If this task checkmark causes all scheduled tasks for today to be completed, award +10 Credits (idempotent)
                 if (isCompleted) {
-                    val db = PlannerDatabase.getDatabase(appContext)
-                    val user = db.userDao().getActiveUserOnce()
-                    if (user != null) {
-                        val creditRepo = CreditRepository(db.creditDao())
-                        creditRepo.awardTaskCompletion(userId = user.userId, checkinId = checkinId)
+                    val dateStr = _selectedDate.value.format(dateFormatter)
+                    val dailyTasks = repository.getTasksForPlanAndDateOnce(planId, dateStr)
+                    if (dailyTasks.isNotEmpty() && dailyTasks.all { it.isCompleted }) {
+                        val db = PlannerDatabase.getDatabase(appContext)
+                        val user = db.userDao().getActiveUserOnce()
+                        if (user != null) {
+                            val creditRepo = CreditRepository(db.creditDao())
+                            creditRepo.awardDayCompletion(userId = user.userId, date = dateStr)
+                        }
                     }
                 }
+
+                // ISSUE-15: Trigger sync so check-in state is uploaded promptly (not only on plan creation)
+                com.example.plannerapp.sync.SyncWorker.enqueue(appContext)
+
                 StreakWidgetUpdater.update(appContext)
             } catch (e: Exception) {
                 // Handle error
@@ -267,14 +317,23 @@ class PlanDetailViewModel(
                     completedSubtasks = gson.toJson(completedList)
                 )
 
+                // If completing this subtask completes all tasks for today, award +10 Credits (idempotent)
                 if (allCompleted) {
-                    val db = PlannerDatabase.getDatabase(appContext)
-                    val user = db.userDao().getActiveUserOnce()
-                    if (user != null) {
-                        val creditRepo = CreditRepository(db.creditDao())
-                        creditRepo.awardTaskCompletion(userId = user.userId, checkinId = task.checkinId)
+                    val dateStr = _selectedDate.value.format(dateFormatter)
+                    val dailyTasks = repository.getTasksForPlanAndDateOnce(planId, dateStr)
+                    if (dailyTasks.isNotEmpty() && dailyTasks.all { it.isCompleted }) {
+                        val db = PlannerDatabase.getDatabase(appContext)
+                        val user = db.userDao().getActiveUserOnce()
+                        if (user != null) {
+                            val creditRepo = CreditRepository(db.creditDao())
+                            creditRepo.awardDayCompletion(userId = user.userId, date = dateStr)
+                        }
                     }
                 }
+
+                // ISSUE-15: Trigger sync so check-in state is uploaded promptly (not only on plan creation)
+                com.example.plannerapp.sync.SyncWorker.enqueue(appContext)
+
                 StreakWidgetUpdater.update(appContext)
             } catch (e: Exception) {
                 // Handle error
@@ -350,6 +409,155 @@ class PlanDetailViewModel(
         }
     }
 
+    fun togglePlanVisibility(isPublic: Boolean, customSocialRepo: com.example.plannerapp.data.social.SocialRepository? = null) {
+        viewModelScope.launch {
+            try {
+                repository.setPlanPublicStatus(planId, isPublic)
+                val targetRepo = customSocialRepo ?: this@PlanDetailViewModel.socialRepository
+                if (targetRepo != null) {
+                    val plan = currentPlan.value ?: repository.getPlan(planId).firstOrNull() ?: return@launch
+                    val templates = repository.getTaskTemplatesForPlan(planId)
+                    val db = PlannerDatabase.getDatabase(appContext)
+                    val user = db.userDao().getActiveUserOnce()
+
+                    val totalDays = try {
+                        val start = LocalDate.parse(plan.startDate, dateFormatter)
+                        val end = LocalDate.parse(plan.endDate, dateFormatter)
+                        ChronoUnit.DAYS.between(start, end).toInt() + 1
+                    } catch (e: Exception) { 7 }
+
+                    if (isPublic) {
+                        val author = if (user != null) {
+                            com.example.plannerapp.data.social.CloudUser(
+                                userId = user.cloudUserId ?: user.userId.toString(),
+                                username = user.displayName.replace(" ", "_").lowercase(),
+                                displayName = user.displayName,
+                                avatarUrl = user.avatarUrl,
+                                isCreator = user.isCreator
+                            )
+                        } else {
+                            com.example.plannerapp.data.social.CloudUser(
+                                userId = "local_user",
+                                username = "planner_user",
+                                displayName = "Planner User"
+                            )
+                        }
+
+                        val templateDto = com.example.plannerapp.data.template.PlanTemplateDto(
+                            title = plan.heading,
+                            description = plan.description,
+                            targetDurationDays = totalDays,
+                            defaultTaskDurationDays = plan.defaultTaskDurationDays,
+                            tags = emptyList(),
+                            category = "General",
+                            author = com.example.plannerapp.data.template.AuthorDto(
+                                userId = author.userId,
+                                displayName = author.displayName,
+                                avatarUrl = author.avatarUrl,
+                                isCreator = author.isCreator
+                            ),
+                            tasks = templates.map { t ->
+                                val subtasksList: List<String> = try {
+                                    gson.fromJson(t.subtasks, object : TypeToken<List<String>>() {}.type) ?: emptyList()
+                                } catch (e: Exception) { emptyList() }
+                                com.example.plannerapp.data.template.TaskTemplateDto(
+                                    taskDescription = t.taskDescription,
+                                    selectedDays = t.selectedDays,
+                                    durationDays = t.durationDays,
+                                    subtasks = subtasksList
+                                )
+                            }
+                        )
+
+                        targetRepo.createPost(
+                            author = author,
+                            title = plan.heading,
+                            description = plan.description,
+                            planTemplateJson = gson.toJson(templateDto),
+                            durationDays = totalDays,
+                            tags = emptyList(),
+                            category = "General",
+                            visibility = "public"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun adoptPlanUpdate(update: PlanVersionUpdate, onCompleted: (Int) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                val plan = currentPlan.value ?: return@launch
+                val today = LocalDate.now()
+                val parsedEndDate = try {
+                    LocalDate.parse(plan.endDate, dateFormatter)
+                } catch (e: Exception) { today.plusDays(7) }
+
+                val remainingDays = (ChronoUnit.DAYS.between(today, parsedEndDate) + 1).coerceAtLeast(1).toInt()
+
+                var addedCount = 0
+                for (taskDto in update.newTasks) {
+                    val template = TaskTemplateEntity(
+                        planId = planId,
+                        taskDescription = taskDto.taskDescription,
+                        selectedDays = taskDto.selectedDays.ifBlank { "1,2,3,4,5,6,7" },
+                        durationDays = taskDto.durationDays.coerceAtLeast(1),
+                        subtasks = gson.toJson(taskDto.subtasks)
+                    )
+                    repository.addTaskToPlan(template, startDate = today, durationDays = remainingDays)
+                    addedCount++
+                }
+
+                prefs.edit().putString("plan_${planId}_version", update.latestVersionTag).apply()
+                _currentLocalVersion.value = update.latestVersionTag
+                onCompleted(addedCount)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun cloneAsNewPlan(update: PlanVersionUpdate, onPlanCreated: (Long) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val db = PlannerDatabase.getDatabase(appContext)
+                val user = db.userDao().getActiveUserOnce() ?: return@launch
+                val currentJoined = repository.getJoinedCommunityForPlanOnce(planId)
+
+                if (socialRepository != null && currentJoined != null) {
+                    val postFlow = socialRepository.getPostById(currentJoined.postId)
+                    val post = postFlow.firstOrNull()
+                    if (post != null) {
+                        val parsedTemplate = gson.fromJson(post.planTemplateJson, PlanTemplateDto::class.java)
+                        if (parsedTemplate != null) {
+                            val newPlanId = repository.importPlanTemplate(
+                                template = parsedTemplate.copy(
+                                    title = "${parsedTemplate.title} (v${update.latestVersionTag})"
+                                ),
+                                targetUserId = user.userId,
+                                startDate = LocalDate.now(),
+                                sourcePostId = PlannerRepository.stableStringHash64(currentJoined.postId)
+                            ).getOrNull()
+                            if (newPlanId != null) {
+                                prefs.edit().putString("plan_${newPlanId}_version", update.latestVersionTag).apply()
+                                onPlanCreated(newPlanId)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun dismissPlanUpdate(versionTag: String) {
+        _dismissedVersions.value = _dismissedVersions.value + versionTag
+    }
+
     fun deletePlan(onDeleted: () -> Unit) {
         viewModelScope.launch {
             try {
@@ -366,12 +574,13 @@ class PlanDetailViewModel(
 class PlanDetailViewModelFactory(
     private val planId: Long,
     private val repository: PlannerRepository,
-    private val appContext: Context
+    private val appContext: Context,
+    private val socialRepository: SocialRepository? = null
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(PlanDetailViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return PlanDetailViewModel(planId, repository, appContext) as T
+            return PlanDetailViewModel(planId, repository, appContext, socialRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

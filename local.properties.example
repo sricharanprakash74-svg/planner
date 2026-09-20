@@ -5,3 +5,8 @@
 # Shipaton Hackathon Backend & Secure Client Handshake Secret
 BACKEND_BASE_URL=http://10.0.2.2:3000/
 CLIENT_APP_SECRET=shipaton_hackathon_token
+
+# Supabase Cloud Integration (Safe for Open-Source: never commit local.properties to git)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key-placeholder
+GOOGLE_SERVER_CLIENT_ID=your-google-server-client-id.apps.googleusercontent.com

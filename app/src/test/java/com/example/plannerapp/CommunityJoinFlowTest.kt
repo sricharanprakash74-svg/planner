@@ -13,8 +13,9 @@ import com.example.plannerapp.data.template.AuthorDto
 import com.example.plannerapp.data.template.PlanTemplateDto
 import com.example.plannerapp.data.template.TaskTemplateDto
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -36,8 +37,8 @@ class CommunityJoinFlowTest {
     }
 
     @Test
-    fun joinCommunityPlan_insertsPlanAndCreatesLinkAndIncrementsJoinCount() = runBlocking {
-        val posts = socialRepository.getPosts().firstBlocking()
+    fun joinCommunityPlan_insertsPlanAndCreatesLinkAndIncrementsJoinCount() = runTest {
+        val posts = socialRepository.getPosts().first()
         val targetPost = posts.first()
         val initialJoinCount = targetPost.joinCount
 
@@ -76,7 +77,7 @@ class CommunityJoinFlowTest {
         // Verify plan was created in DAO
         val insertedPlan = fakeDao.plans.find { it.planId == newPlanId }
         assertNotNull(insertedPlan)
-        assertEquals("Morning Routine Protocol", insertedPlan!!.heading)
+        assertEquals(targetPost.title, insertedPlan!!.heading)
         assertEquals(42L, insertedPlan.userId)
         assertEquals("2026-09-01", insertedPlan.startDate)
 
@@ -92,12 +93,70 @@ class CommunityJoinFlowTest {
         assertEquals(newPlanId, lookupRecord!!.localPlanId)
 
         // Verify remote join count was incremented
-        val updatedPost = socialRepository.getPostById(targetPost.postId).firstBlocking()
+        val updatedPost = socialRepository.getPostById(targetPost.postId).first()
         assertEquals(initialJoinCount + 1, updatedPost!!.joinCount)
     }
 
     @Test
-    fun joinCommunityPlan_rejectsInvalidTemplate() = runBlocking {
+    fun joinCommunityPlan_duplicateJoinReturnsExistingPlanWithoutIncrementingCount() = runTest {
+        val posts = socialRepository.getPosts().first()
+        val targetPost = posts.first()
+
+        val sampleTemplate = PlanTemplateDto(
+            title = targetPost.title,
+            description = targetPost.description,
+            targetDurationDays = targetPost.durationDays,
+            defaultTaskDurationDays = 1,
+            author = AuthorDto(
+                userId = targetPost.author.userId,
+                displayName = targetPost.author.displayName,
+                isCreator = targetPost.author.isCreator
+            ),
+            tasks = listOf(
+                TaskTemplateDto(
+                    taskDescription = "Morning Walk",
+                    selectedDays = "1,2,3,4,5,6,7",
+                    durationDays = 1,
+                    subtasks = emptyList()
+                )
+            )
+        )
+
+        val firstResult = plannerRepository.joinCommunityPlan(
+            postId = targetPost.postId,
+            template = sampleTemplate,
+            targetUserId = 42L,
+            startDate = LocalDate.of(2026, 9, 1),
+            socialRepository = socialRepository
+        )
+        assertTrue(firstResult.isSuccess)
+        val firstPlanId = firstResult.getOrThrow()
+
+        val joinCountAfterFirst = socialRepository.getPostById(targetPost.postId).first()!!.joinCount
+        val plansCountAfterFirst = fakeDao.plans.size
+
+        // Second join attempt for same post and user
+        val secondResult = plannerRepository.joinCommunityPlan(
+            postId = targetPost.postId,
+            template = sampleTemplate,
+            targetUserId = 42L,
+            startDate = LocalDate.of(2026, 9, 1),
+            socialRepository = socialRepository
+        )
+        assertTrue(secondResult.isSuccess)
+        val secondPlanId = secondResult.getOrThrow()
+
+        // Must return existing plan ID
+        assertEquals(firstPlanId, secondPlanId)
+        // Must NOT create a duplicate plan
+        assertEquals(plansCountAfterFirst, fakeDao.plans.size)
+        // Must NOT increment the join count again
+        val joinCountAfterSecond = socialRepository.getPostById(targetPost.postId).first()!!.joinCount
+        assertEquals(joinCountAfterFirst, joinCountAfterSecond)
+    }
+
+    @Test
+    fun joinCommunityPlan_rejectsInvalidTemplate() = runTest {
         val invalidTemplate = PlanTemplateDto(
             title = "", // invalid blank title
             targetDurationDays = 0, // invalid 0 duration
@@ -114,16 +173,6 @@ class CommunityJoinFlowTest {
         assertTrue(result.isFailure)
         assertTrue(fakeDao.plans.isEmpty())
         assertTrue(fakeDao.joinedCommunities.isEmpty())
-    }
-
-    // Helper extension to grab first item from Flow synchronously in test
-    private fun <T> Flow<T>.firstBlocking(): T = runBlocking {
-        var result: T? = null
-        collect {
-            result = it
-            return@collect
-        }
-        result ?: throw NoSuchElementException("Empty flow")
     }
 
     private class FakePlannerDao : PlannerDao {
@@ -201,6 +250,7 @@ class CommunityJoinFlowTest {
 
         override fun getTasksForDate(todayDate: String): Flow<List<DailyTaskView>> = flowOf(emptyList())
         override fun getTasksForPlanAndDate(planId: Long, exactDate: String): Flow<List<DailyTaskView>> = flowOf(emptyList())
+        override suspend fun getTasksForPlanAndDateOnce(planId: Long, exactDate: String): List<DailyTaskView> = emptyList()
         override suspend fun updateCheckinStatus(checkinId: Long, isCompleted: Boolean, completedAt: Long?, timezoneOffset: String) {}
         override suspend fun updateCheckinAndSubtasksStatus(checkinId: Long, isCompleted: Boolean, completedSubtasks: String, completedAt: Long?, timezoneOffset: String) {}
         override suspend fun getPastCheckins(userId: Long, currentDate: String): List<DailyCheckinEntity> = emptyList()

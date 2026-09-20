@@ -26,6 +26,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import com.example.plannerapp.smartlink.SmartLinkParser
+import com.example.plannerapp.smartlink.ui.SmartLinkCard
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -126,15 +129,30 @@ fun CommunityPlanCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            val detectedCardUrl = remember(planDescription) {
+                SmartLinkParser.findFirstUrl(planDescription)
+            }
+            val cleanDesc = remember(planDescription) {
+                SmartLinkParser.extractCleanText(planDescription)
+            }
 
-            Text(
-                text = planDescription,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (cleanDesc.isNotBlank()) {
+                Text(
+                    text = cleanDesc,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            if (detectedCardUrl != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                SmartLinkCard(
+                    url = detectedCardUrl,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 

@@ -1,26 +1,31 @@
 package com.example.plannerapp.auth
 
+import com.example.plannerapp.BuildConfig
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.compose.auth.ComposeAuth
 import io.github.jan.supabase.compose.auth.composeAuth
 import io.github.jan.supabase.compose.auth.googleNativeLogin
+import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.realtime.Realtime
+import io.github.jan.supabase.realtime.realtime
+import io.github.jan.supabase.storage.Storage
+import io.github.jan.supabase.storage.storage
 import io.github.jan.supabase.createSupabaseClient
 
 /**
  * Supabase client configuration and initialization.
  * 
- * Replace placeholders with your actual project credentials:
- * - SUPABASE_URL: Your Supabase project URL (e.g., https://xyz.supabase.co)
- * - SUPABASE_ANON_KEY: Your Supabase anonymous public API key
- * - GOOGLE_SERVER_CLIENT_ID: Your Google Cloud Web Client ID (for Credential Manager ID tokens)
+ * Credentials are read securely at compile-time from local.properties via BuildConfig,
+ * ensuring no live secrets are ever committed into source control.
  */
 object SupabaseConfig {
 
-    const val SUPABASE_URL = "https://your-project.supabase.co"
-    const val SUPABASE_ANON_KEY = "your-anon-key-placeholder"
-    const val GOOGLE_SERVER_CLIENT_ID = "your-google-server-client-id.apps.googleusercontent.com"
+    val SUPABASE_URL: String = BuildConfig.SUPABASE_URL
+    val SUPABASE_ANON_KEY: String = BuildConfig.SUPABASE_ANON_KEY
+    val GOOGLE_SERVER_CLIENT_ID: String = BuildConfig.GOOGLE_SERVER_CLIENT_ID
 
     val client: SupabaseClient by lazy {
         createSupabaseClient(
@@ -31,6 +36,9 @@ object SupabaseConfig {
             install(ComposeAuth) {
                 googleNativeLogin(serverClientId = GOOGLE_SERVER_CLIENT_ID)
             }
+            install(Postgrest)
+            install(Realtime)
+            install(Storage)
         }
     }
 
@@ -39,4 +47,19 @@ object SupabaseConfig {
 
     val composeAuth: ComposeAuth
         get() = client.composeAuth
+
+    val postgrest: Postgrest
+        get() = client.postgrest
+
+    val realtime: Realtime
+        get() = client.realtime
+
+    val storage: Storage
+        get() = client.storage
+
+    val isConfigured: Boolean
+        get() = !SUPABASE_URL.contains("your-project.supabase.co") && 
+                !SUPABASE_ANON_KEY.contains("placeholder") && 
+                SUPABASE_URL.isNotBlank() && 
+                SUPABASE_ANON_KEY.isNotBlank()
 }

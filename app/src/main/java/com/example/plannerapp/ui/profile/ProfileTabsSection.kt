@@ -3,6 +3,7 @@ package com.example.plannerapp.ui.profile
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -75,6 +76,22 @@ fun ProfileCommentsEmptyState(modifier: Modifier = Modifier) {
         icon = Icons.Outlined.ChatBubbleOutline,
         title = "No comments yet",
         description = "Comments and replies on community discussions will show up here.",
+        modifier = modifier
+    )
+}
+
+@Composable
+fun ProfileConnectsEmptyState(
+    isFollowingTab: Boolean,
+    modifier: Modifier = Modifier
+) {
+    EmptySectionState(
+        icon = Icons.Outlined.AccountCircle,
+        title = if (isFollowingTab) "Not following anyone yet" else "No followers yet",
+        description = if (isFollowingTab)
+            "Explore community plans and creators to connect and subscribe to routine updates."
+        else
+            "When other planners connect with your profile, they will appear here.",
         modifier = modifier
     )
 }

@@ -24,8 +24,13 @@ fun HomeScreenWrapper(
     creditViewModel: com.example.plannerapp.credits.CreditViewModel? = null,
     feedViewModel: com.example.plannerapp.ui.social.CommunityFeedViewModel? = null,
     onNavigateToDiscussion: (String) -> Unit = {},
+    onPostClick: (String) -> Unit = {},
+    onCreatorClick: (String) -> Unit = {},
     onCreatorMonetizationClick: () -> Unit = {},
     onBecomeCreatorClick: () -> Unit = {},
+    onNotificationsClick: () -> Unit = {},
+    onConversationsClick: () -> Unit = {},
+    onMenuClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     HomeScreen(
@@ -41,8 +46,13 @@ fun HomeScreenWrapper(
         creditViewModel = creditViewModel,
         feedViewModel = feedViewModel,
         onNavigateToDiscussion = onNavigateToDiscussion,
+        onPostClick = onPostClick,
+        onCreatorClick = onCreatorClick,
         onCreatorMonetizationClick = onCreatorMonetizationClick,
         onBecomeCreatorClick = onBecomeCreatorClick,
+        onNotificationsClick = onNotificationsClick,
+        onConversationsClick = onConversationsClick,
+        onMenuClick = onMenuClick,
         modifier = modifier
     )
 

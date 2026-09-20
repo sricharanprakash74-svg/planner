@@ -12,12 +12,19 @@ import com.example.plannerapp.data.UserDao
 import com.example.plannerapp.notifications.ReminderScheduler
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import com.example.plannerapp.data.social.CloudUser
+import com.example.plannerapp.data.social.SocialRepository
+import com.example.plannerapp.data.template.AuthorDto
+import com.example.plannerapp.data.template.PlanTemplateDto
+import com.example.plannerapp.data.template.TaskTemplateDto
+import com.google.gson.Gson
 import java.time.format.DateTimeFormatter
 
 class CreatePlanViewModel(
     private val repository: PlannerRepository,
     private val userDao: UserDao,
-    private val appContext: Context
+    private val appContext: Context,
+    private val socialRepository: SocialRepository? = null
 ) : ViewModel() {
 
     fun createNewPlan(
@@ -27,7 +34,8 @@ class CreatePlanViewModel(
         endDate: LocalDate,
         tasksInput: List<Pair<String, Set<Int>>>,
         reminderEnabled: Boolean = false,
-        reminderTime: String? = "08:00"
+        reminderTime: String? = "08:00",
+        isPublic: Boolean = false
     ) {
         viewModelScope.launch {
             try {
@@ -42,12 +50,12 @@ class CreatePlanViewModel(
                     startDate = startDate.format(dateFormatter),
                     endDate = endDate.format(dateFormatter),
                     reminderEnabled = reminderEnabled,
-                    reminderTime = reminderTime
+                    reminderTime = reminderTime,
+                    isPublic = isPublic
                 )
 
                 // 2. Create Templates & Checkins
                 val templatesWithCheckins = mutableMapOf<TaskTemplateEntity, List<DailyCheckinEntity>>()
-
                 val totalDays = java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate).toInt()
 
                 tasksInput.forEach { (taskDesc, selectedDays) ->
@@ -76,12 +84,50 @@ class CreatePlanViewModel(
                 // 3. Save via Repository
                 val newPlanId = repository.createFullPlan(plan, templatesWithCheckins)
 
-                // 4. Schedule reminder alarm if enabled
+                // 4. If public, publish to SocialRepository
+                if (isPublic && socialRepository != null) {
+                    val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id ?: user.cloudUserId ?: user.userId.toString()
+                    val author = CloudUser(
+                        userId = cloudUid,
+                        username = user.displayName.replace(" ", "_").lowercase(),
+                        displayName = user.displayName,
+                        avatarUrl = user.avatarUrl,
+                        isCreator = user.isCreator
+                    )
+                    val templateDto = PlanTemplateDto(
+                        title = name,
+                        description = description,
+                        targetDurationDays = totalDays + 1,
+                        defaultTaskDurationDays = 1,
+                        tags = emptyList(),
+                        category = "General",
+                        author = AuthorDto(author.userId, author.displayName, author.avatarUrl, author.isCreator),
+                        tasks = tasksInput.map { (taskDesc, selectedDays) ->
+                            TaskTemplateDto(
+                                taskDescription = taskDesc,
+                                selectedDays = selectedDays.joinToString(","),
+                                durationDays = 1,
+                                subtasks = emptyList()
+                            )
+                        }
+                    )
+                    socialRepository.createPost(
+                        author = author,
+                        title = name,
+                        description = description,
+                        planTemplateJson = Gson().toJson(templateDto),
+                        durationDays = totalDays + 1,
+                        tags = emptyList(),
+                        category = "General",
+                        visibility = "public"
+                    )
+                }
+
+                // 5. Schedule reminder alarm if enabled
                 if (reminderEnabled && !reminderTime.isNullOrBlank()) {
                     ReminderScheduler.schedule(appContext, newPlanId, name, reminderTime)
                 }
             } catch (e: Exception) {
-                // In a real app we'd emit an event to show a Snackbar here
                 e.printStackTrace()
             }
         }
@@ -91,12 +137,13 @@ class CreatePlanViewModel(
 class CreatePlanViewModelFactory(
     private val repository: PlannerRepository,
     private val userDao: UserDao,
-    private val appContext: Context
+    private val appContext: Context,
+    private val socialRepository: SocialRepository? = null
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(CreatePlanViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return CreatePlanViewModel(repository, userDao, appContext) as T
+            return CreatePlanViewModel(repository, userDao, appContext, socialRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

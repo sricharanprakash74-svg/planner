@@ -10,11 +10,13 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.compose.auth.composable.NativeSignInResult
+import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 data class AuthUiState(
     val isLoading: Boolean = false,
@@ -26,11 +28,20 @@ data class AuthUiState(
 
 class AuthViewModel(
     private val userDao: UserDao,
-    private val supabase: SupabaseClient = SupabaseConfig.client
+    private val supabase: SupabaseClient = SupabaseConfig.client,
+    private val appContext: android.content.Context? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+    private fun triggerCloudSync() {
+        appContext?.let { ctx ->
+            try {
+                com.example.plannerapp.sync.SyncWorker.enqueue(ctx)
+            } catch (_: Exception) {}
+        }
+    }
 
     fun toggleAuthMode() {
         _uiState.update { 
@@ -61,12 +72,14 @@ class AuthViewModel(
                 }
 
                 val authUser = supabase.auth.currentUserOrNull()
-                val cloudUid = authUser?.id ?: "cloud_${System.currentTimeMillis()}"
-                val userEmail = authUser?.email ?: email.trim()
-                val displayName = authUser?.userMetadata?.get("full_name")?.toString()
+                    ?: throw IllegalStateException("Sign in succeeded but no user session was found.")
+                val cloudUid = authUser.id
+                val userEmail = authUser.email ?: email.trim()
+                val displayName = authUser.userMetadata?.get("full_name")?.toString()
                     ?: userEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
 
                 syncLocalUserWithCloud(cloudUid, userEmail, displayName)
+                triggerCloudSync()
 
                 _uiState.update { 
                     it.copy(
@@ -106,13 +119,15 @@ class AuthViewModel(
                 }
 
                 val authUser = supabase.auth.currentUserOrNull()
-                val cloudUid = authUser?.id ?: "cloud_${System.currentTimeMillis()}"
-                val userEmail = authUser?.email ?: email.trim()
+                    ?: throw IllegalStateException("Sign up succeeded but user session is not available. Please verify your email or sign in.")
+                val cloudUid = authUser.id
+                val userEmail = authUser.email ?: email.trim()
                 val name = displayName.ifBlank {
                     userEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
                 }
 
                 syncLocalUserWithCloud(cloudUid, userEmail, name)
+                triggerCloudSync()
 
                 _uiState.update { 
                     it.copy(
@@ -140,13 +155,15 @@ class AuthViewModel(
                     _uiState.update { it.copy(isLoading = true, errorMessage = null) }
                     try {
                         val authUser = supabase.auth.currentUserOrNull()
-                        val cloudUid = authUser?.id ?: "google_${System.currentTimeMillis()}"
-                        val userEmail = authUser?.email ?: "google_user@plannerapp.com"
-                        val displayName = authUser?.userMetadata?.get("full_name")?.toString()
-                            ?: authUser?.userMetadata?.get("name")?.toString()
+                            ?: throw IllegalStateException("Google sign in succeeded but no user session was found.")
+                        val cloudUid = authUser.id
+                        val userEmail = authUser.email ?: "google_user@plannerapp.com"
+                        val displayName = authUser.userMetadata?.get("full_name")?.toString()
+                            ?: authUser.userMetadata?.get("name")?.toString()
                             ?: userEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
 
                         syncLocalUserWithCloud(cloudUid, userEmail, displayName)
+                        triggerCloudSync()
 
                         _uiState.update { 
                             it.copy(
@@ -205,15 +222,21 @@ class AuthViewModel(
 
     private suspend fun syncLocalUserWithCloud(cloudUid: String, email: String, displayName: String) {
         val existing = userDao.getActiveUserOnce()
+        val targetUserId: Long
         if (existing != null) {
+            val oldUserId = existing.userId
             userDao.upgradeToCloudUser(
-                userId = existing.userId,
+                userId = oldUserId,
                 cloudUserId = cloudUid,
                 email = email,
                 displayName = displayName
             )
+            targetUserId = oldUserId
+            // BUG-10: upgradeToCloudUser updates the existing row in-place (same userId),
+            // so all plans with userId = oldUserId continue to resolve correctly. No migration needed.
+            // If the userId ever changes (e.g., full re-insert), call plannerDao.migrateUserPlans(oldUserId, newUserId).
         } else {
-            userDao.insertUser(
+            targetUserId = userDao.insertUser(
                 UserEntity(
                     cloudUserId = cloudUid,
                     email = email,
@@ -221,17 +244,44 @@ class AuthViewModel(
                 )
             )
         }
+
+        // Check remote profile for existing onboarding status
+        if (SupabaseConfig.isConfigured) {
+            try {
+                val profile = supabase.postgrest.from("profiles").select {
+                    filter { eq("id", cloudUid) }
+                }.decodeList<JsonObject>().firstOrNull()
+
+                if (profile != null) {
+                    val isCompleted = profile["onboarding_completed"]?.toString()?.trim('"')?.toBooleanStrictOrNull() == true
+                    val remoteName = profile["display_name"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
+                    val remoteAvatar = profile["avatar_url"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
+                    
+                    if (remoteName != null || remoteAvatar != null) {
+                        userDao.updateProfile(targetUserId, remoteName ?: displayName, remoteAvatar)
+                    }
+                    if (isCompleted) {
+                        userDao.markOnboardingComplete(targetUserId)
+                    }
+                }
+            } catch (e: Exception) {
+                // Offline or table not ready — safely proceed with local state
+            }
+        }
     }
 }
 
 class AuthViewModelFactory(
     private val userDao: UserDao,
-    private val supabase: SupabaseClient = SupabaseConfig.client
+    private val supabase: SupabaseClient = SupabaseConfig.client,
+    private val appContext: android.content.Context? = null
 ) : ViewModelProvider.Factory {
+    constructor(userDao: UserDao, appContext: android.content.Context?) : this(userDao, SupabaseConfig.client, appContext)
+
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(AuthViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return AuthViewModel(userDao, supabase) as T
+            return AuthViewModel(userDao, supabase, appContext) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
