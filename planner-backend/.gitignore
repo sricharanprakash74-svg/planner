@@ -1,0 +1,22 @@
+# Dependencies & Build Output
+node_modules/
+dist/
+
+# SQLite Database & Journal Files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+prisma/*.db
+prisma/*.db-journal
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Logs & Temporary Files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+skills-lock.json

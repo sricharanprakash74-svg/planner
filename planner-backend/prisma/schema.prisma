@@ -1,0 +1,298 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id          Int      @id @default(autoincrement())
+  firebaseUid String?  @unique
+  email       String?  @unique
+  displayName String   @default("Guest")
+  createdAt   DateTime @default(now())
+  
+  plans             Plan[]
+  creatorProfile    CreatorProfile?
+  userTagAffinities UserTagAffinity[]
+  publicPlans       PublicPlan[]
+  planVotes         PlanVote[]
+  planComments      PlanComment[]
+  following         UserFollow[]        @relation("Following")
+  followers         UserFollow[]        @relation("Followers")
+  savedPlans        SavedPlan[]
+  planUses          PlanUse[]
+  contentReports    ContentReport[]
+  blockedUsers      UserBlock[]         @relation("Blocker")
+  blockedBy         UserBlock[]         @relation("Blocked")
+}
+
+model CreatorProfile {
+  id                Int      @id @default(autoincrement())
+  userId            Int      @unique
+  payoutMethod      String   @default("PAYPAL")
+  payoutAccount     String   @default("")
+  earnedCredits     Int      @default(0)
+  redeemableCredits Int      @default(0)
+  totalPaidUsd      Float    @default(0.0)
+  isMonetized       Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sales             PlanSale[]
+  payouts           PayoutRequest[]
+}
+
+model PlanSale {
+  id              Int      @id @default(autoincrement())
+  creatorId       Int
+  buyerId         Int?
+  buyerName       String   @default("Anonymous")
+  planId          Int
+  planTitle       String
+  creditAmount    Int
+  creatorEarning  Int
+  createdAt       DateTime @default(now())
+
+  creator         CreatorProfile @relation(fields: [creatorId], references: [userId], onDelete: Cascade)
+}
+
+model PayoutRequest {
+  id              Int      @id @default(autoincrement())
+  creatorId       Int
+  creditsDeducted Int
+  amountUsd       Float
+  payoutMethod    String
+  payoutAccount   String
+  status          String   @default("PENDING")
+  referenceId     String   @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  creator         CreatorProfile @relation(fields: [creatorId], references: [userId], onDelete: Cascade)
+}
+
+model Plan {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  heading     String
+  description String?
+  startDate   String
+  endDate     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templates   TaskTemplate[]
+}
+
+model TaskTemplate {
+  id              Int      @id @default(autoincrement())
+  planId          Int
+  taskDescription String
+  selectedDays    String
+  createdAt       DateTime @default(now())
+
+  plan            Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  checkins        DailyCheckin[]
+}
+
+model DailyCheckin {
+  id             Int       @id @default(autoincrement())
+  templateId     Int
+  exactDate      String
+  isCompleted    Boolean   @default(false)
+  completedAt    DateTime?
+  timezoneOffset String?
+  updatedAt      DateTime  @updatedAt
+
+  template       TaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+model Post {
+  id            Int       @id @default(autoincrement())
+  title         String
+  content       String
+  wordCount     Int       @default(0) @map("word_count")
+  isCoreTheme   Boolean   @default(false) @map("is_core_theme")
+  likesCount    Int       @default(0) @map("likes_count")
+  savesCount    Int       @default(0) @map("saves_count")
+  sharesCount   Int       @default(0) @map("shares_count")
+  commentsCount Int       @default(0) @map("comments_count")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  postTags      PostTag[]
+
+  @@index([createdAt(sort: Desc)])
+  @@index([isCoreTheme])
+  @@map("posts")
+}
+
+model Tag {
+  id                Int               @id @default(autoincrement())
+  name              String            @unique
+  postTags          PostTag[]
+  userTagAffinities UserTagAffinity[]
+
+  @@map("tags")
+}
+
+model PostTag {
+  postId           Int      @map("post_id")
+  tagId            Int      @map("tag_id")
+  sourceType       String   @map("source_type") // 'CREATOR' | 'COMMENTER'
+  endorsementCount Int      @default(1) @map("endorsement_count")
+
+  post             Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag              Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId, sourceType])
+  @@index([tagId])
+  @@index([postId, sourceType])
+  @@map("post_tags")
+}
+
+model UserTagAffinity {
+  userId       Int      @map("user_id")
+  tagId        Int      @map("tag_id")
+  weight       Float    @default(1.0)
+  lastActiveAt DateTime @default(now()) @map("last_active_at")
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tag          Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([userId, tagId])
+  @@index([userId, weight(sort: Desc)])
+  @@map("user_tag_affinities")
+}
+
+model PublicPlan {
+  id                      Int           @id @default(autoincrement())
+  userId                  Int           @map("user_id")
+  title                   String
+  description             String?
+  targetDurationDays      Int           @default(30) @map("target_duration_days")
+  defaultTaskDurationDays Int           @default(1) @map("default_task_duration_days")
+  tags                    String        @default("")
+  category                String        @default("General")
+  planTemplateJson        String        @default("{}") @map("plan_template_json")
+  upvoteCount             Int           @default(0) @map("upvote_count")
+  downloadCount           Int           @default(0) @map("download_count")
+  commentCount            Int           @default(0) @map("comment_count")
+  isArchived              Boolean       @default(false) @map("is_archived")
+  createdAt               DateTime      @default(now()) @map("created_at")
+  updatedAt               DateTime      @updatedAt @map("updated_at")
+
+  user                    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  votes                   PlanVote[]
+  comments                PlanComment[]
+  saves                   SavedPlan[]
+  uses                    PlanUse[]
+
+  @@index([userId])
+  @@index([createdAt(sort: Desc)])
+  @@map("public_plans")
+}
+
+model PlanVote {
+  id        Int        @id @default(autoincrement())
+  userId    Int        @map("user_id")
+  planId    Int        @map("plan_id")
+  voteType  String     @default("UP") @map("vote_type")
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan      PublicPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, planId])
+  @@map("plan_votes")
+}
+
+model PlanComment {
+  id              Int           @id @default(autoincrement())
+  planId          Int           @map("plan_id")
+  userId          Int           @map("user_id")
+  parentCommentId Int?          @map("parent_comment_id")
+  content         String
+  upvoteCount     Int           @default(0) @map("upvote_count")
+  isDeleted       Boolean       @default(false) @map("is_deleted")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan            PublicPlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  parent          PlanComment?  @relation("CommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies         PlanComment[] @relation("CommentReplies")
+
+  @@index([planId])
+  @@map("plan_comments")
+}
+
+model UserFollow {
+  id          Int      @id @default(autoincrement())
+  followerId  Int      @map("follower_id")
+  followingId Int      @map("following_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  follower    User     @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User     @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@map("user_follows")
+}
+
+model SavedPlan {
+  id        Int        @id @default(autoincrement())
+  userId    Int        @map("user_id")
+  planId    Int        @map("plan_id")
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan      PublicPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, planId])
+  @@map("saved_plans")
+}
+
+model PlanUse {
+  id             Int        @id @default(autoincrement())
+  userId         Int        @map("user_id")
+  originalPlanId Int        @map("original_plan_id")
+  clonedPlanId   Int?       @map("cloned_plan_id")
+  createdAt      DateTime   @default(now()) @map("created_at")
+
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  originalPlan   PublicPlan @relation(fields: [originalPlanId], references: [id], onDelete: Cascade)
+
+  @@map("plan_uses")
+}
+
+model ContentReport {
+  id             Int      @id @default(autoincrement())
+  reporterId     Int      @map("reporter_id")
+  targetId       String   @map("target_id")
+  targetType     String   @map("target_type")
+  reason         String
+  status         String   @default("PENDING")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  reporter       User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@map("content_reports")
+}
+
+model UserBlock {
+  id        Int      @id @default(autoincrement())
+  blockerId Int      @map("blocker_id")
+  blockedId Int      @map("blocked_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@map("user_blocks")
+}
