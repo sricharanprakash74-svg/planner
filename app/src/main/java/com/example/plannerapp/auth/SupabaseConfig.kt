@@ -7,15 +7,14 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.compose.auth.ComposeAuth
 import io.github.jan.supabase.compose.auth.composeAuth
 import io.github.jan.supabase.compose.auth.googleNativeLogin
+import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.realtime.realtime
+import io.github.jan.supabase.serializer.KotlinXSerializer
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.storage.storage
-import io.github.jan.supabase.createSupabaseClient
-
-import io.github.jan.supabase.serializer.KotlinXSerializer
 import kotlinx.serialization.json.Json
 
 /**
@@ -29,6 +28,14 @@ object SupabaseConfig {
     val SUPABASE_URL: String = BuildConfig.SUPABASE_URL
     val SUPABASE_ANON_KEY: String = BuildConfig.SUPABASE_ANON_KEY
     val GOOGLE_SERVER_CLIENT_ID: String = BuildConfig.GOOGLE_SERVER_CLIENT_ID
+
+    val isConfigured: Boolean
+        get() = SUPABASE_URL != "https://your-project.supabase.co" &&
+                SUPABASE_ANON_KEY != "your-anon-key-placeholder" &&
+                !SUPABASE_URL.contains("your-project.supabase.co") && 
+                !SUPABASE_ANON_KEY.contains("placeholder") && 
+                SUPABASE_URL.isNotBlank() &&
+                SUPABASE_ANON_KEY.isNotBlank()
 
     val client: SupabaseClient by lazy {
         createSupabaseClient(
@@ -65,10 +72,4 @@ object SupabaseConfig {
 
     val storage: Storage
         get() = client.storage
-
-    val isConfigured: Boolean
-        get() = !SUPABASE_URL.contains("your-project.supabase.co") && 
-                !SUPABASE_ANON_KEY.contains("placeholder") && 
-                SUPABASE_URL.isNotBlank() && 
-                SUPABASE_ANON_KEY.isNotBlank()
 }
