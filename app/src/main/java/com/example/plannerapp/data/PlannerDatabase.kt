@@ -38,7 +38,7 @@ import com.example.plannerapp.sharing.SharingDao
         CreatorLedgerEntity::class
     ],
     version = 11,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class PlannerDatabase : RoomDatabase() {
 
