@@ -73,7 +73,11 @@ class OnboardingViewModel(
                     }
                 }
                 if (activeUser.interests.isNotBlank() && activeUser.interests != "[]") {
-                    _selectedInterests.value = activeUser.interests
+                    val cleaned = activeUser.interests
+                        .removePrefix("[")
+                        .removeSuffix("]")
+                        .replace("\"", "")
+                    _selectedInterests.value = cleaned
                         .split(",")
                         .map { it.trim() }
                         .filter { it.isNotBlank() }
@@ -238,7 +242,7 @@ class OnboardingViewModel(
                     if (uid != null) {
                         val payload = buildJsonObject {
                             put("id", uid)
-                            put("username", finalUsername.ifBlank { "user_${uid.take(8)}" })
+                            put("username", finalUsername.ifBlank { finalDisplayName.lowercase().replace(" ", "_") })
                             put("display_name", finalDisplayName)
                             if (remoteAvatarUrl != null) {
                                 put("avatar_url", remoteAvatarUrl)
@@ -247,7 +251,7 @@ class OnboardingViewModel(
                         SupabaseConfig.postgrest.from("profiles").upsert(payload)
                     }
                 } catch (e: Exception) {
-                    // Offline fallback: will sync later via SyncWorker
+                    // Offline fallback: local state updated successfully
                 }
             }
             onSuccess()

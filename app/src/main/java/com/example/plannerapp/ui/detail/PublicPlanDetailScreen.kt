@@ -493,18 +493,44 @@ fun PublicPlanDetailScreen(
             // ── 5. Curriculum Breakdown & Task Preview ───────────
             val template = uiState.planTemplate
             val tasks = template?.tasks
-            if (template != null && !tasks.isNullOrEmpty()) {
-                item {
-                    Text(
-                        text = "Curriculum Breakdown (${tasks.size} Tasks)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+            item {
+                Text(
+                    text = "Curriculum Breakdown (${tasks?.size ?: 0} Tasks)",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
 
+            if (!tasks.isNullOrEmpty()) {
                 items(tasks) { task ->
                     TaskPreviewCard(task = task)
+                }
+            } else {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Checklist,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Flexible plan: No fixed task schedule. Tap 'Use Plan' above to add your own tasks to this plan.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
 

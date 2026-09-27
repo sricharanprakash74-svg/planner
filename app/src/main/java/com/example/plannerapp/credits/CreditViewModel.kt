@@ -161,17 +161,8 @@ class CreditViewModel(
                     return@launch
                 }
                 
-                val amountCents = (priceUsd * 100).toInt()
-                val response = com.example.plannerapp.data.NetworkClient.api.createPaymentIntent(
-                    com.example.plannerapp.data.CreateIntentPayload(
-                        amount = amountCents,
-                        userId = user.userId
-                    )
-                )
-                
-                pendingPurchaseCredits = creditsAmount
-                pendingPurchasePackName = packName
-                _stripeClientSecret.value = response.clientSecret
+                // Offline-first: direct payment integration offline without custom backend
+                _uiState.value = _uiState.value.copy(isBusy = false, message = "Payment service currently unavailable.")
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isBusy = false, message = e.message ?: "Failed to initialize payment")
             } finally {

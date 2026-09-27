@@ -56,9 +56,32 @@ class PublicPlanDetailViewModel(
                 if (post != null) {
                     val template = try {
                         gson.fromJson(post.planTemplateJson, PlanTemplateDto::class.java)?.let { parsed ->
-                            parsed.copy(tasks = (parsed.tasks as? List<TaskTemplateDto>) ?: emptyList())
+                            if (parsed.title.isBlank()) {
+                                parsed.copy(
+                                    title = post.title,
+                                    description = post.description,
+                                    targetDurationDays = post.durationDays,
+                                    tasks = parsed.tasks
+                                )
+                            } else {
+                                parsed.copy(tasks = parsed.tasks)
+                            }
                         }
-                    } catch (e: Exception) { null }
+                    } catch (e: Exception) { null } ?: com.example.plannerapp.data.template.PlanTemplateDto(
+                        title = post.title,
+                        description = post.description,
+                        targetDurationDays = post.durationDays.coerceAtLeast(1),
+                        defaultTaskDurationDays = 1,
+                        tags = post.tags,
+                        category = post.category,
+                        author = com.example.plannerapp.data.template.AuthorDto(
+                            userId = post.author.userId,
+                            displayName = post.author.displayName,
+                            avatarUrl = post.author.avatarUrl,
+                            isCreator = post.author.isCreator
+                        ),
+                        tasks = emptyList()
+                    )
 
                     _uiState.update {
                         it.copy(
@@ -83,9 +106,13 @@ class PublicPlanDetailViewModel(
 
         viewModelScope.launch {
             val user = userDao.getActiveUserOnce()
-            val uid = user?.cloudUserId ?: user?.userId?.toString() ?: "local_user"
-            socialRepository.isFollowingPlan(planId, uid).collect { isFollowing ->
-                _uiState.update { it.copy(isFollowingPlan = isFollowing) }
+            val uid = user?.cloudUserId
+            if (!uid.isNullOrBlank()) {
+                socialRepository.isFollowingPlan(planId, uid).collect { isFollowing ->
+                    _uiState.update { it.copy(isFollowingPlan = isFollowing) }
+                }
+            } else {
+                _uiState.update { it.copy(isFollowingPlan = false) }
             }
         }
     }
@@ -93,8 +120,13 @@ class PublicPlanDetailViewModel(
     fun toggleSave() {
         viewModelScope.launch {
             try {
-                val newSaved = socialRepository.toggleSavePost(planId).getOrDefault(false)
-                _uiState.update { it.copy(isSaved = newSaved, toastMessage = if (newSaved) "Plan saved" else "Plan unsaved") }
+                val saveResult = socialRepository.toggleSavePost(planId)
+                if (saveResult.isSuccess) {
+                    val newSaved = saveResult.getOrDefault(false)
+                    _uiState.update { it.copy(isSaved = newSaved, toastMessage = if (newSaved) "Plan saved" else "Plan unsaved") }
+                } else {
+                    _uiState.update { it.copy(errorMessage = saveResult.exceptionOrNull()?.message ?: "Failed to save plan") }
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message) }
             }
@@ -104,9 +136,14 @@ class PublicPlanDetailViewModel(
     fun toggleLike() {
         viewModelScope.launch {
             try {
-                val updated = socialRepository.votePost(planId, VoteType.UP).getOrNull()
-                if (updated != null) {
-                    _uiState.update { it.copy(post = updated, isLiked = updated.userVote == VoteType.UP) }
+                val voteResult = socialRepository.votePost(planId, VoteType.UP)
+                if (voteResult.isSuccess) {
+                    val updated = voteResult.getOrNull()
+                    if (updated != null) {
+                        _uiState.update { it.copy(post = updated, isLiked = updated.userVote == VoteType.UP) }
+                    }
+                } else {
+                    _uiState.update { it.copy(errorMessage = voteResult.exceptionOrNull()?.message ?: "Failed to like plan") }
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message) }
@@ -118,13 +155,22 @@ class PublicPlanDetailViewModel(
         viewModelScope.launch {
             try {
                 val user = userDao.getActiveUserOnce()
-                val uid = user?.cloudUserId ?: user?.userId?.toString() ?: "local_user"
-                val newFollow = socialRepository.toggleFollowPlan(planId, uid).getOrDefault(false)
-                _uiState.update {
-                    it.copy(
-                        isFollowingPlan = newFollow,
-                        toastMessage = if (newFollow) "Subscribed to plan updates" else "Unsubscribed from plan"
-                    )
+                val uid = user?.cloudUserId
+                if (uid.isNullOrBlank()) {
+                    _uiState.update { it.copy(errorMessage = "Please sign in to follow plans.") }
+                    return@launch
+                }
+                val followResult = socialRepository.toggleFollowPlan(planId, uid)
+                if (followResult.isSuccess) {
+                    val newFollow = followResult.getOrDefault(false)
+                    _uiState.update {
+                        it.copy(
+                            isFollowingPlan = newFollow,
+                            toastMessage = if (newFollow) "Following plan updates" else "Unfollowed plan"
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(errorMessage = followResult.exceptionOrNull()?.message ?: "Failed to follow plan") }
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message) }
@@ -138,11 +184,19 @@ class PublicPlanDetailViewModel(
             try {
                 val isCurrentlyFollowing = uiState.value.isFollowingCreator
                 if (isCurrentlyFollowing) {
-                    socialRepository.unfollowCreator(authorId)
-                    _uiState.update { it.copy(isFollowingCreator = false, toastMessage = "Unfollowed creator") }
+                    val res = socialRepository.unfollowCreator(authorId)
+                    if (res.isSuccess) {
+                        _uiState.update { it.copy(isFollowingCreator = false, toastMessage = "Unfollowed creator") }
+                    } else {
+                        _uiState.update { it.copy(errorMessage = res.exceptionOrNull()?.message ?: "Failed to unfollow creator") }
+                    }
                 } else {
-                    socialRepository.followCreator(authorId)
-                    _uiState.update { it.copy(isFollowingCreator = true, toastMessage = "Following creator") }
+                    val res = socialRepository.followCreator(authorId)
+                    if (res.isSuccess) {
+                        _uiState.update { it.copy(isFollowingCreator = true, toastMessage = "Following creator") }
+                    } else {
+                        _uiState.update { it.copy(errorMessage = res.exceptionOrNull()?.message ?: "Failed to follow creator") }
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message) }
@@ -152,7 +206,26 @@ class PublicPlanDetailViewModel(
 
     fun usePlan(startDate: LocalDate = LocalDate.now()) {
         val currentPost = uiState.value.post ?: return
-        val template = uiState.value.planTemplate ?: return
+        val existingTemplate = uiState.value.planTemplate
+        val template = if (existingTemplate != null && existingTemplate.title.isNotBlank()) {
+            existingTemplate
+        } else {
+            com.example.plannerapp.data.template.PlanTemplateDto(
+                title = currentPost.title.ifBlank { "Imported Plan" },
+                description = currentPost.description,
+                targetDurationDays = currentPost.durationDays.coerceAtLeast(1),
+                defaultTaskDurationDays = 1,
+                tags = currentPost.tags,
+                category = currentPost.category,
+                author = com.example.plannerapp.data.template.AuthorDto(
+                    userId = currentPost.author.userId,
+                    displayName = currentPost.author.displayName,
+                    avatarUrl = currentPost.author.avatarUrl,
+                    isCreator = currentPost.author.isCreator
+                ),
+                tasks = emptyList()
+            )
+        }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isUsing = true) }
@@ -193,19 +266,27 @@ class PublicPlanDetailViewModel(
         viewModelScope.launch {
             try {
                 val activeUser = userDao.getActiveUserOnce()
+                val cloudId = activeUser?.cloudUserId
+                if (cloudId.isNullOrBlank()) {
+                    _uiState.update { it.copy(errorMessage = "Please sign in to comment on public plans.") }
+                    return@launch
+                }
                 val author = CloudUser(
-                    userId = activeUser?.cloudUserId ?: activeUser?.userId?.toString() ?: "local_user",
-                    username = activeUser?.displayName?.replace(" ", "_")?.lowercase() ?: "user",
-                    displayName = activeUser?.displayName ?: "User",
-                    avatarUrl = activeUser?.avatarUrl,
-                    isCreator = activeUser?.isCreator ?: false
+                    userId = cloudId,
+                    username = activeUser.displayName.replace(" ", "_").lowercase(),
+                    displayName = activeUser.displayName,
+                    avatarUrl = activeUser.avatarUrl,
+                    isCreator = activeUser.isCreator
                 )
-                socialRepository.addComment(
+                val addResult = socialRepository.addComment(
                     postId = planId,
                     author = author,
                     content = content,
                     parentCommentId = parentId
                 )
+                if (addResult.isFailure) {
+                    _uiState.update { it.copy(errorMessage = addResult.exceptionOrNull()?.message ?: "Failed to post comment") }
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message) }
             }
@@ -216,14 +297,22 @@ class PublicPlanDetailViewModel(
         viewModelScope.launch {
             try {
                 val activeUser = userDao.getActiveUserOnce()
-                val reporterId = activeUser?.cloudUserId ?: activeUser?.userId?.toString() ?: "local_user"
-                socialRepository.reportContent(
+                val reporterId = activeUser?.cloudUserId
+                if (reporterId.isNullOrBlank()) {
+                    _uiState.update { it.copy(errorMessage = "Please sign in to submit a report.") }
+                    return@launch
+                }
+                val reportResult = socialRepository.reportContent(
                     targetId = planId,
                     targetType = "PLAN",
                     reason = reason,
                     reporterUserId = reporterId
                 )
-                _uiState.update { it.copy(toastMessage = "Report submitted. Thank you for keeping the community safe.") }
+                if (reportResult.isSuccess) {
+                    _uiState.update { it.copy(toastMessage = "Report submitted. Thank you for keeping the community safe.") }
+                } else {
+                    _uiState.update { it.copy(errorMessage = reportResult.exceptionOrNull()?.message ?: "Failed to submit report") }
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message) }
             }

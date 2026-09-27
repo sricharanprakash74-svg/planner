@@ -42,15 +42,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
-import androidx.work.OneTimeWorkRequest
-import androidx.work.WorkManager
 import com.example.plannerapp.creator.CreatorRepository
 import com.example.plannerapp.creator.CreatorStudioViewModel
 import com.example.plannerapp.creator.CreatorStudioViewModelFactory
 import com.example.plannerapp.credits.PlannerStoreScreen
 import com.example.plannerapp.data.PlannerDatabase
 import com.example.plannerapp.data.PlannerRepository
-import com.example.plannerapp.sync.SyncWorker
 import com.example.plannerapp.ui.creator.CreatorStudioScreen
 import com.example.plannerapp.ui.navigation.AppScaffoldWrapper
 import com.example.plannerapp.ui.navigation.BottomNavTab
@@ -169,11 +166,6 @@ fun MainNavigation() {
             )
         }
     )
-
-    val triggerSync = {
-        SyncWorker.enqueue(context)
-        SyncWorker.schedulePeriodic(context)
-    }
 
     val currentKey = backStack.lastOrNull() ?: if (initialHasUser) Home else SignIn
 
@@ -358,7 +350,7 @@ fun MainNavigation() {
                 entry<Home> {
                     val homeFeedViewModel: CommunityFeedViewModel = viewModel(
                         key = "home_community_feed_vm",
-                        factory = CommunityFeedViewModelFactory(socialRepository)
+                        factory = CommunityFeedViewModelFactory(socialRepository, userDao)
                     )
                     HomeScreenWrapper(
                         viewModel = homeViewModel,
@@ -385,7 +377,7 @@ fun MainNavigation() {
                 entry<Explore> { key ->
                     val feedViewModel: CommunityFeedViewModel = viewModel(
                         key = "explore_feed_${key.initialQuery}",
-                        factory = CommunityFeedViewModelFactory(socialRepository, key.initialQuery)
+                        factory = CommunityFeedViewModelFactory(socialRepository, userDao, key.initialQuery)
                     )
                     ExploreScreen(
                         viewModel = feedViewModel,
@@ -623,7 +615,7 @@ fun MainNavigation() {
                     CreatePlanScreenWrapper(
                         viewModel = createPlanViewModel,
                         onClose = { backStack.removeLastOrNull() },
-                        onPlanCreated = { triggerSync() }
+                        onPlanCreated = { }
                     )
                 }
                 entry<PlanDetail> { key ->

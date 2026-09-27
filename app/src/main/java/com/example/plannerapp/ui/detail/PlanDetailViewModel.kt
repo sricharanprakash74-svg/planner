@@ -274,9 +274,6 @@ class PlanDetailViewModel(
                     }
                 }
 
-                // ISSUE-15: Trigger sync so check-in state is uploaded promptly (not only on plan creation)
-                com.example.plannerapp.sync.SyncWorker.enqueue(appContext)
-
                 StreakWidgetUpdater.update(appContext)
             } catch (e: Exception) {
                 // Handle error
@@ -330,9 +327,6 @@ class PlanDetailViewModel(
                         }
                     }
                 }
-
-                // ISSUE-15: Trigger sync so check-in state is uploaded promptly (not only on plan creation)
-                com.example.plannerapp.sync.SyncWorker.enqueue(appContext)
 
                 StreakWidgetUpdater.update(appContext)
             } catch (e: Exception) {

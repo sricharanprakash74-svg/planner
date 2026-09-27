@@ -3,6 +3,7 @@ package com.example.plannerapp.ui.social
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.plannerapp.data.UserDao
 import com.example.plannerapp.data.social.CommunityPost
 import com.example.plannerapp.data.social.FeedFilter
 import com.example.plannerapp.data.social.SocialRepository
@@ -27,6 +28,7 @@ data class CommunityFeedUiState(
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class CommunityFeedViewModel(
     private val socialRepository: SocialRepository,
+    private val userDao: UserDao? = null,
     initialQuery: String = ""
 ) : ViewModel() {
 
@@ -38,6 +40,24 @@ class CommunityFeedViewModel(
         .debounce(250L)
         .distinctUntilChanged()
 
+    private val userPrefsFlow = userDao?.getActiveUser()?.map { user ->
+        if (user == null) {
+            Pair(emptyList(), emptyList())
+        } else {
+            val categories = if (user.categories.isBlank() || user.categories == "[]") {
+                emptyList()
+            } else {
+                user.categories.removePrefix("[").removeSuffix("]").replace("\"", "").split(",").map { it.trim() }.filter { it.isNotBlank() }
+            }
+            val interests = if (user.interests.isBlank() || user.interests == "[]") {
+                emptyList()
+            } else {
+                user.interests.removePrefix("[").removeSuffix("]").replace("\"", "").split(",").map { it.trim() }.filter { it.isNotBlank() }
+            }
+            Pair(categories, interests)
+        }
+    } ?: flowOf(Pair(emptyList(), emptyList()))
+
     private val searchFlow = debouncedQuery.flatMapLatest { query ->
         if (query.isBlank()) {
             flowOf(SocialSearchResult())
@@ -48,15 +68,21 @@ class CommunityFeedViewModel(
 
     private val postsFeedFlow = combine(
         _selectedFilter,
-        debouncedQuery
-    ) { filter, query ->
-        Pair(filter, query)
-    }.flatMapLatest { (filter, query) ->
+        debouncedQuery,
+        userPrefsFlow
+    ) { filter, query, (categories, interests) ->
+        Triple(filter, query, Pair(categories, interests))
+    }.flatMapLatest { (filter, query, prefs) ->
         if (query.isNotBlank()) {
             // When actively searching, avoid executing feed query concurrently
             flowOf(emptyList())
         } else {
-            socialRepository.getPosts(filter = filter, query = "")
+            socialRepository.getPosts(
+                filter = filter,
+                query = "",
+                userCategories = prefs.first,
+                userInterests = prefs.second
+            )
         }
     }
 
@@ -135,20 +161,38 @@ class CommunityFeedViewModel(
         }
     }
 
-    fun onReportContent(targetId: String, targetType: String, reason: String, reporterUserId: String = "local_user") {
+    fun onReportContent(targetId: String, targetType: String, reason: String, reporterUserId: String = "") {
         viewModelScope.launch {
             try {
-                socialRepository.reportContent(targetId, targetType, reason, reporterUserId)
+                val activeUser = userDao?.getActiveUserOnce()
+                val uid = reporterUserId.ifBlank { activeUser?.cloudUserId ?: "" }
+                if (uid.isBlank()) {
+                    _errorMessage.value = "Please sign in to submit a report."
+                    return@launch
+                }
+                val result = socialRepository.reportContent(targetId, targetType, reason, uid)
+                if (result.isFailure) {
+                    _errorMessage.value = result.exceptionOrNull()?.message ?: "Failed to report content"
+                }
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
         }
     }
 
-    fun onBlockUser(targetUserId: String, currentUserId: String = "local_user") {
+    fun onBlockUser(targetUserId: String, currentUserId: String = "") {
         viewModelScope.launch {
             try {
-                socialRepository.blockUser(targetUserId, currentUserId)
+                val activeUser = userDao?.getActiveUserOnce()
+                val uid = currentUserId.ifBlank { activeUser?.cloudUserId ?: "" }
+                if (uid.isBlank()) {
+                    _errorMessage.value = "Please sign in to block users."
+                    return@launch
+                }
+                val result = socialRepository.blockUser(targetUserId, uid)
+                if (result.isFailure) {
+                    _errorMessage.value = result.exceptionOrNull()?.message ?: "Failed to block user"
+                }
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
@@ -162,12 +206,13 @@ class CommunityFeedViewModel(
 
 class CommunityFeedViewModelFactory(
     private val socialRepository: SocialRepository,
+    private val userDao: UserDao? = null,
     private val initialQuery: String = ""
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(CommunityFeedViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return CommunityFeedViewModel(socialRepository, initialQuery) as T
+            return CommunityFeedViewModel(socialRepository, userDao, initialQuery) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

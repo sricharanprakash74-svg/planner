@@ -32,6 +32,10 @@ data class UserProfile(
     @SerialName("followers_count") val followersCount: Int = 0,
     @SerialName("following_count") val followingCount: Int = 0,
     @SerialName("public_plans_count") val publicPlansCount: Int = 0,
+    @SerialName("onboarding_completed") val onboardingCompleted: Boolean = false,
+    val categories: List<String> = emptyList(),
+    val interests: List<String> = emptyList(),
+    @SerialName("experience_level") val experienceLevel: String = "BEGINNER",
     @SerialName("created_at") val createdAt: String? = null
 )
 

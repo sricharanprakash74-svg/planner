@@ -1,9 +1,9 @@
 -- ==============================================================================
--- PlannerApp: Supabase PostgreSQL Social Platform Schema (Idempotent & Safe)
+-- DEPRECATED: Use docs/supabase_schema_canonical.sql instead!
 -- ==============================================================================
--- Run this script in your Supabase SQL Editor (https://supabase.com/dashboard)
--- It sets up the social platform tables, triggers, and RLS policies cleanly
--- without colliding with existing Room sync tables (e.g. plans, users, plan_votes).
+-- This legacy schema contains older column names (e.g. user_id vs creator_id,
+-- is_public vs visibility). For the production, canonical database schema, run:
+--   docs/supabase_schema_canonical.sql
 -- ==============================================================================
 
 -- 1. EXTENSIONS

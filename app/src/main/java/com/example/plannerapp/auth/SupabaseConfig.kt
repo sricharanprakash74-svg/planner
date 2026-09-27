@@ -15,6 +15,9 @@ import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.storage.storage
 import io.github.jan.supabase.createSupabaseClient
 
+import io.github.jan.supabase.serializer.KotlinXSerializer
+import kotlinx.serialization.json.Json
+
 /**
  * Supabase client configuration and initialization.
  * 
@@ -32,6 +35,12 @@ object SupabaseConfig {
             supabaseUrl = SUPABASE_URL,
             supabaseKey = SUPABASE_ANON_KEY
         ) {
+            defaultSerializer = KotlinXSerializer(Json {
+                ignoreUnknownKeys = true
+                isLenient = true
+                encodeDefaults = true
+                coerceInputValues = true
+            })
             install(Auth)
             install(ComposeAuth) {
                 googleNativeLogin(serverClientId = GOOGLE_SERVER_CLIENT_ID)

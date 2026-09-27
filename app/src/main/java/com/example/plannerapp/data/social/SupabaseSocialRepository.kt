@@ -1,6 +1,7 @@
 package com.example.plannerapp.data.social
 
 import com.example.plannerapp.auth.SupabaseConfig
+import com.example.plannerapp.data.template.AuthorDto
 import com.example.plannerapp.data.template.PlanTemplateDto
 import com.example.plannerapp.data.template.TaskTemplateDto
 import io.github.jan.supabase.SupabaseClient
@@ -37,10 +38,21 @@ class SupabaseSocialRepository(
     private val currentUserId: String?
         get() = SupabaseConfig.auth.currentUserOrNull()?.id
 
+    private fun isValidUuid(id: String?): Boolean {
+        if (id.isNullOrBlank()) return false
+        return try {
+            UUID.fromString(id)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     // In-memory cache for fast responsive offline/hybrid operations
     private val _cachedPublicPlans = MutableStateFlow<List<PublicPlan>>(emptyList())
     val cachedPublicPlans: Flow<List<PublicPlan>> = _cachedPublicPlans.asStateFlow()
 
+    private val _cachedTemplateJsons = mutableMapOf<String, String>()
     private val _cachedComments = MutableStateFlow<Map<String, List<SocialComment>>>(emptyMap())
     private val _cachedProfiles = MutableStateFlow<Map<String, UserProfile>>(emptyMap())
     private val _followingUserIds = MutableStateFlow<Set<String>>(emptySet())
@@ -51,6 +63,10 @@ class SupabaseSocialRepository(
     private val _cachedConversations = MutableStateFlow<List<Conversation>>(emptyList())
     private val _cachedMessages = MutableStateFlow<Map<String, List<DirectMessage>>>(emptyMap())
     private val _cachedNotifications = MutableStateFlow<List<SocialNotification>>(emptyList())
+
+    init {
+        seedOfflineData()
+    }
 
     // ISSUE-19: Tracks whether we have loaded saved/liked/followed/blocked state for the current session
     private var _userStateInitialized = false
@@ -280,16 +296,64 @@ class SupabaseSocialRepository(
 
     suspend fun getPlanVersions(planId: String): Result<List<PlanVersion>> = withContext(Dispatchers.IO) {
         try {
-            if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+            if (!SupabaseConfig.isConfigured) {
+                val cached = _cachedTemplateJsons[planId]
+                if (cached != null) {
+                    return@withContext Result.success(
+                        listOf(
+                            PlanVersion(
+                                id = "ver_${planId}",
+                                planId = planId,
+                                versionTag = "1.0.0",
+                                changelog = "Initial release",
+                                templateJson = cached
+                            )
+                        )
+                    )
+                }
+                return@withContext Result.success(emptyList())
+            }
 
             val versions = postgrest.from("plan_versions").select {
                 filter { eq("plan_id", planId) }
                 order("published_at", Order.DESCENDING)
             }.decodeList<PlanVersion>()
 
+            if (versions.isEmpty()) {
+                val cached = _cachedTemplateJsons[planId]
+                if (cached != null) {
+                    return@withContext Result.success(
+                        listOf(
+                            PlanVersion(
+                                id = "ver_${planId}",
+                                planId = planId,
+                                versionTag = "1.0.0",
+                                changelog = "Initial release",
+                                templateJson = cached
+                            )
+                        )
+                    )
+                }
+            }
+
             Result.success(versions)
         } catch (e: Exception) {
-            Result.failure(e)
+            val cached = _cachedTemplateJsons[planId]
+            if (cached != null) {
+                Result.success(
+                    listOf(
+                        PlanVersion(
+                            id = "ver_${planId}",
+                            planId = planId,
+                            versionTag = "1.0.0",
+                            changelog = "Initial release",
+                            templateJson = cached
+                        )
+                    )
+                )
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
@@ -320,15 +384,6 @@ class SupabaseSocialRepository(
 
         try {
             if (SupabaseConfig.isConfigured) {
-                // Ensure profile row exists to prevent FK violation
-                try {
-                    postgrest.from("profiles").upsert(buildJsonObject {
-                        put("id", validUuid)
-                        put("username", "user_${validUuid.take(8)}")
-                        put("display_name", "Planner User")
-                    })
-                } catch (_: Exception) { }
-
                 val newPlanPayload = buildJsonObject {
                     put("creator_id", validUuid)
                     put("title", title)
@@ -353,10 +408,25 @@ class SupabaseSocialRepository(
                     put("plan_id", createdPlan.id)
                     put("version_tag", versionTag)
                     put("changelog", changelog)
-                    put("template_json", templateJson)
+                    put("template_json", try {
+                        kotlinx.serialization.json.Json.parseToJsonElement(templateJson)
+                    } catch (_: Exception) {
+                        kotlinx.serialization.json.JsonPrimitive(templateJson)
+                    })
                 }
-                postgrest.from("plan_versions").insert(versionPayload)
+                try {
+                    postgrest.from("plan_versions").insert(versionPayload)
+                } catch (versionError: Exception) {
+                    // Atomic rollback: delete created public plan if version insert fails
+                    try {
+                        postgrest.from("public_plans").delete {
+                            filter { eq("id", createdPlan.id) }
+                        }
+                    } catch (_: Exception) {}
+                    throw versionError
+                }
 
+                _cachedTemplateJsons[createdPlan.id] = templateJson
                 _cachedPublicPlans.value = listOf(createdPlan) + _cachedPublicPlans.value
                 Result.success(createdPlan)
             } else {
@@ -372,6 +442,7 @@ class SupabaseSocialRepository(
                     currentVersion = versionTag,
                     visibility = visibility.uppercase()
                 )
+                _cachedTemplateJsons[offlinePlan.id] = templateJson
                 _cachedPublicPlans.value = listOf(offlinePlan) + _cachedPublicPlans.value
                 Result.success(offlinePlan)
             }
@@ -387,6 +458,7 @@ class SupabaseSocialRepository(
 
     suspend fun toggleSavePublicPlan(planId: String): Result<Boolean> = withContext(Dispatchers.IO) {
         val uid = currentUserId ?: return@withContext Result.failure(IllegalStateException("Not authenticated"))
+        if (!isValidUuid(uid)) return@withContext Result.failure(IllegalArgumentException("Invalid user ID"))
         try {
             val isCurrentlySaved = _savedPlanIds.value.contains(planId) || isPlanSavedDirect(planId)
             if (isCurrentlySaved) {
@@ -410,16 +482,21 @@ class SupabaseSocialRepository(
                 Result.success(true)
             }
         } catch (e: Exception) {
-            val isCurrentlySaved = _savedPlanIds.value.contains(planId)
-            val newSaved = !isCurrentlySaved
-            _savedPlanIds.value = if (newSaved) _savedPlanIds.value + planId else _savedPlanIds.value - planId
-            updatePlanInCache(planId) { it.copy(isSaved = newSaved) }
-            Result.success(newSaved)
+            if (!SupabaseConfig.isConfigured) {
+                val isCurrentlySaved = _savedPlanIds.value.contains(planId)
+                val newSaved = !isCurrentlySaved
+                _savedPlanIds.value = if (newSaved) _savedPlanIds.value + planId else _savedPlanIds.value - planId
+                updatePlanInCache(planId) { it.copy(isSaved = newSaved) }
+                Result.success(newSaved)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
     private suspend fun isPlanSavedDirect(planId: String): Boolean {
         val uid = currentUserId ?: return false
+        if (!isValidUuid(uid)) return false
         return try {
             val count = postgrest.from("plan_saves").select {
                 filter {
@@ -435,6 +512,7 @@ class SupabaseSocialRepository(
 
     suspend fun recordPlanUsageDirect(planId: String, versionId: String? = null): Result<Int> = withContext(Dispatchers.IO) {
         val uid = currentUserId ?: return@withContext Result.failure(IllegalStateException("Not authenticated"))
+        if (!isValidUuid(uid)) return@withContext Result.failure(IllegalArgumentException("Invalid user ID"))
         try {
             val payload = buildJsonObject {
                 put("user_id", uid)
@@ -446,13 +524,18 @@ class SupabaseSocialRepository(
             val currentUses = _cachedPublicPlans.value.find { it.id == planId }?.usesCount ?: 1
             Result.success(currentUses)
         } catch (e: Exception) {
-            updatePlanInCache(planId) { it.copy(isUsed = true, usesCount = it.usesCount + 1) }
-            Result.success(1)
+            if (!SupabaseConfig.isConfigured) {
+                updatePlanInCache(planId) { it.copy(isUsed = true, usesCount = it.usesCount + 1) }
+                Result.success(1)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
     suspend fun toggleFollowPlanDirect(planId: String): Result<Boolean> = withContext(Dispatchers.IO) {
         val uid = currentUserId ?: return@withContext Result.failure(IllegalStateException("Not authenticated"))
+        if (!isValidUuid(uid)) return@withContext Result.failure(IllegalArgumentException("Invalid user ID"))
         try {
             val isFollowed = _followedPlanIds.value.contains(planId)
             if (isFollowed) {
@@ -476,16 +559,21 @@ class SupabaseSocialRepository(
                 Result.success(true)
             }
         } catch (e: Exception) {
-            val isFollowed = _followedPlanIds.value.contains(planId)
-            val newFollow = !isFollowed
-            _followedPlanIds.value = if (newFollow) _followedPlanIds.value + planId else _followedPlanIds.value - planId
-            updatePlanInCache(planId) { it.copy(isFollowing = newFollow) }
-            Result.success(newFollow)
+            if (!SupabaseConfig.isConfigured) {
+                val isFollowed = _followedPlanIds.value.contains(planId)
+                val newFollow = !isFollowed
+                _followedPlanIds.value = if (newFollow) _followedPlanIds.value + planId else _followedPlanIds.value - planId
+                updatePlanInCache(planId) { it.copy(isFollowing = newFollow) }
+                Result.success(newFollow)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
     suspend fun toggleLikePublicPlan(planId: String): Result<Boolean> = withContext(Dispatchers.IO) {
         val uid = currentUserId ?: return@withContext Result.failure(IllegalStateException("Not authenticated"))
+        if (!isValidUuid(uid)) return@withContext Result.failure(IllegalArgumentException("Invalid user ID"))
         try {
             val isLiked = _likedPlanIds.value.contains(planId)
             if (isLiked) {
@@ -509,11 +597,15 @@ class SupabaseSocialRepository(
                 Result.success(true)
             }
         } catch (e: Exception) {
-            val isLiked = _likedPlanIds.value.contains(planId)
-            val newLiked = !isLiked
-            _likedPlanIds.value = if (newLiked) _likedPlanIds.value + planId else _likedPlanIds.value - planId
-            updatePlanInCache(planId) { it.copy(isLiked = newLiked) }
-            Result.success(newLiked)
+            if (!SupabaseConfig.isConfigured) {
+                val isLiked = _likedPlanIds.value.contains(planId)
+                val newLiked = !isLiked
+                _likedPlanIds.value = if (newLiked) _likedPlanIds.value + planId else _likedPlanIds.value - planId
+                updatePlanInCache(planId) { it.copy(isLiked = newLiked) }
+                Result.success(newLiked)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
@@ -539,6 +631,7 @@ class SupabaseSocialRepository(
             ?: getPublicPlanByIdDirect(postId).getOrNull()
         if (plan != null) {
             val templateJson = getPlanVersions(plan.id).getOrNull()?.firstOrNull()?.templateJson
+                ?: _cachedTemplateJsons[plan.id]
             emit(planToCommunityPost(plan, templateJson = templateJson))
         } else {
             emit(null)
@@ -617,6 +710,9 @@ class SupabaseSocialRepository(
     }
 
     override suspend fun deletePost(postId: String, userId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        if (!isValidUuid(postId) || !isValidUuid(userId)) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid ID"))
+        }
         try {
             postgrest.from("public_plans").delete {
                 filter {
@@ -627,13 +723,20 @@ class SupabaseSocialRepository(
             _cachedPublicPlans.value = _cachedPublicPlans.value.filter { it.id != postId }
             Result.success(true)
         } catch (e: Exception) {
-            _cachedPublicPlans.value = _cachedPublicPlans.value.filter { it.id != postId }
-            Result.success(true)
+            if (!SupabaseConfig.isConfigured) {
+                _cachedPublicPlans.value = _cachedPublicPlans.value.filter { it.id != postId }
+                Result.success(true)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
     override suspend fun votePost(postId: String, voteType: VoteType): Result<CommunityPost> {
         val result = toggleLikePublicPlan(postId)
+        if (result.isFailure) {
+            return Result.failure(result.exceptionOrNull() ?: Exception("Vote failed"))
+        }
         val plan = _cachedPublicPlans.value.find { it.id == postId }
             ?: PublicPlan(id = postId, creatorId = "", title = "")
         return Result.success(planToCommunityPost(plan))
@@ -679,7 +782,7 @@ class SupabaseSocialRepository(
         }
         try {
             val comments = postgrest.from("comments").select(
-                Columns.raw("*, author:profiles(*)")
+                Columns.raw("*, author:profiles!user_id(*)")
             ) {
                 filter { eq("plan_id", postId) }
                 order("created_at", Order.ASCENDING)
@@ -700,6 +803,9 @@ class SupabaseSocialRepository(
         parentCommentId: String?
     ): Result<PostComment> = withContext(Dispatchers.IO) {
         val uid = currentUserId ?: author.userId
+        if (!isValidUuid(uid) || !isValidUuid(postId)) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid ID"))
+        }
         try {
             val payload = buildJsonObject {
                 put("user_id", uid)
@@ -708,25 +814,32 @@ class SupabaseSocialRepository(
                 if (parentCommentId != null) put("parent_comment_id", parentCommentId)
             }
             val inserted = postgrest.from("comments").insert(payload) {
-                select(Columns.raw("*, author:profiles(*)"))
+                select(Columns.raw("*, author:profiles!user_id(*)"))
                 single()
             }.decodeSingle<SocialComment>()
             Result.success(socialCommentToPostComment(inserted))
         } catch (e: Exception) {
-            val localComment = PostComment(
-                commentId = "comm_${UUID.randomUUID().toString().take(8)}",
-                postId = postId,
-                author = author,
-                content = content,
-                parentCommentId = parentCommentId,
-                upvoteCount = 0,
-                createdAt = System.currentTimeMillis()
-            )
-            Result.success(localComment)
+            if (!SupabaseConfig.isConfigured) {
+                val localComment = PostComment(
+                    commentId = "comm_${UUID.randomUUID().toString().take(8)}",
+                    postId = postId,
+                    author = author,
+                    content = content,
+                    parentCommentId = parentCommentId,
+                    upvoteCount = 0,
+                    createdAt = System.currentTimeMillis()
+                )
+                Result.success(localComment)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
     override suspend fun deleteComment(postId: String, commentId: String, userId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        if (!isValidUuid(commentId) || !isValidUuid(userId)) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid ID"))
+        }
         try {
             postgrest.from("comments").delete {
                 filter {
@@ -735,12 +848,19 @@ class SupabaseSocialRepository(
             }
             Result.success(true)
         } catch (e: Exception) {
-            Result.success(true)
+            if (!SupabaseConfig.isConfigured) {
+                Result.success(true)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
     override suspend fun toggleCommentLike(postId: String, commentId: String): Result<PostComment> = withContext(Dispatchers.IO) {
-        val uid = currentUserId ?: "guest"
+        val uid = currentUserId ?: return@withContext Result.failure(IllegalStateException("Not authenticated"))
+        if (!isValidUuid(uid) || !isValidUuid(commentId)) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid ID"))
+        }
         try {
             if (!SupabaseConfig.isConfigured) {
                 val currentList = _cachedComments.value[postId] ?: emptyList()
@@ -787,27 +907,31 @@ class SupabaseSocialRepository(
                 })
             }
 
-            val refreshed = postgrest.from("comments").select(Columns.raw("*, author:profiles(*)")) {
+            val refreshed = postgrest.from("comments").select(Columns.raw("*, author:profiles!user_id(*)")) {
                 filter { eq("id", commentId) }
                 single()
             }.decodeSingle<SocialComment>()
 
             Result.success(socialCommentToPostComment(refreshed.copy(isLiked = !wasLiked)))
         } catch (e: Exception) {
-            val currentList = _cachedComments.value[postId] ?: emptyList()
-            val targetComment = currentList.find { it.id == commentId }
-            val newLiked = !(targetComment?.isLiked ?: false)
-            val currentLikes = targetComment?.likesCount ?: 0
-            val newCount = if (newLiked) currentLikes + 1 else (currentLikes - 1).coerceAtLeast(0)
-            val fallback = PostComment(
-                commentId = commentId,
-                postId = postId,
-                author = CloudUser(userId = uid, username = "", displayName = "User"),
-                content = targetComment?.content ?: "",
-                upvoteCount = newCount,
-                isLiked = newLiked
-            )
-            Result.success(fallback)
+            if (!SupabaseConfig.isConfigured) {
+                val currentList = _cachedComments.value[postId] ?: emptyList()
+                val targetComment = currentList.find { it.id == commentId }
+                val newLiked = !(targetComment?.isLiked ?: false)
+                val currentLikes = targetComment?.likesCount ?: 0
+                val newCount = if (newLiked) currentLikes + 1 else (currentLikes - 1).coerceAtLeast(0)
+                val fallback = PostComment(
+                    commentId = commentId,
+                    postId = postId,
+                    author = CloudUser(userId = uid, username = "", displayName = "User"),
+                    content = targetComment?.content ?: "",
+                    upvoteCount = newCount,
+                    isLiked = newLiked
+                )
+                Result.success(fallback)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
@@ -816,7 +940,7 @@ class SupabaseSocialRepository(
     }
 
     override fun getUserProfile(userId: String): Flow<CloudUser?> = flow {
-        if (!SupabaseConfig.isConfigured) {
+        if (!SupabaseConfig.isConfigured || !isValidUuid(userId)) {
             val cached = _cachedProfiles.value[userId]
             emit(cached?.let { profileToCloudUser(it) })
             return@flow
@@ -841,7 +965,7 @@ class SupabaseSocialRepository(
 
     override fun isFollowingCreator(userId: String): Flow<Boolean> = flow {
         val uid = currentUserId
-        if (uid == null) {
+        if (uid == null || !SupabaseConfig.isConfigured) {
             emit(_followingUserIds.value.contains(userId))
             return@flow
         }
@@ -852,7 +976,11 @@ class SupabaseSocialRepository(
                     eq("following_id", userId)
                 }
             }.decodeList<UserFollowRelationship>().size
-            emit(count > 0)
+            val isFollow = count > 0
+            if (isFollow) {
+                _followingUserIds.value = _followingUserIds.value + userId
+            }
+            emit(isFollow)
         } catch (e: Exception) {
             emit(_followingUserIds.value.contains(userId))
         }
@@ -861,36 +989,34 @@ class SupabaseSocialRepository(
     override fun getFollowingList(): Flow<Set<String>> = _followingUserIds.asStateFlow()
 
     override suspend fun followCreator(userId: String): Result<Boolean> = withContext(Dispatchers.IO) {
-        val uid = currentUserId ?: return@withContext Result.failure(IllegalStateException("Not authenticated"))
-        try {
-            val payload = buildJsonObject {
-                put("follower_id", uid)
-                put("following_id", userId)
-            }
-            postgrest.from("user_follows").insert(payload)
-            _followingUserIds.value = _followingUserIds.value + userId
-            Result.success(true)
-        } catch (e: Exception) {
-            _followingUserIds.value = _followingUserIds.value + userId
-            Result.success(true)
+        val uid = currentUserId
+        _followingUserIds.value = _followingUserIds.value + userId
+        if (uid != null && SupabaseConfig.isConfigured) {
+            try {
+                val payload = buildJsonObject {
+                    put("follower_id", uid)
+                    put("following_id", userId)
+                }
+                postgrest.from("user_follows").insert(payload)
+            } catch (_: Exception) {}
         }
+        Result.success(true)
     }
 
     override suspend fun unfollowCreator(userId: String): Result<Boolean> = withContext(Dispatchers.IO) {
-        val uid = currentUserId ?: return@withContext Result.failure(IllegalStateException("Not authenticated"))
-        try {
-            postgrest.from("user_follows").delete {
-                filter {
-                    eq("follower_id", uid)
-                    eq("following_id", userId)
+        val uid = currentUserId
+        _followingUserIds.value = _followingUserIds.value - userId
+        if (uid != null && SupabaseConfig.isConfigured) {
+            try {
+                postgrest.from("user_follows").delete {
+                    filter {
+                        eq("follower_id", uid)
+                        eq("following_id", userId)
+                    }
                 }
-            }
-            _followingUserIds.value = _followingUserIds.value - userId
-            Result.success(false)
-        } catch (e: Exception) {
-            _followingUserIds.value = _followingUserIds.value - userId
-            Result.success(false)
+            } catch (_: Exception) {}
         }
+        Result.success(false)
     }
 
     override suspend fun upsertCloudUser(user: CloudUser): Result<CloudUser> = withContext(Dispatchers.IO) {
@@ -970,7 +1096,7 @@ class SupabaseSocialRepository(
             val plans: List<PublicPlan> = resolvedPlans
 
             val people = try {
-                postgrest.from("profiles").select {
+                val foundProfiles = postgrest.from("profiles").select {
                     filter {
                         or {
                             ilike("username", "%$clean%")
@@ -979,6 +1105,28 @@ class SupabaseSocialRepository(
                     }
                     limit(20)
                 }.decodeList<UserProfile>().filter { it.id !in blocked }
+
+                val foundIds = foundProfiles.map { it.id }
+                val privacySettingsMap = if (foundIds.isNotEmpty()) {
+                    try {
+                        postgrest.from("privacy_settings").select {
+                            filter { isIn("user_id", foundIds) }
+                        }.decodeList<PrivacySettings>().associateBy { it.userId }
+                    } catch (_: Exception) { emptyMap() }
+                } else emptyMap()
+
+                val followingIds = _followingUserIds.value
+                val currentUid = currentUserId
+
+                foundProfiles.filter { profile ->
+                    if (profile.id == currentUid) return@filter true
+                    val privacy = privacySettingsMap[profile.id] ?: PrivacySettings(userId = profile.id)
+                    when (privacy.profileVisibility) {
+                        "PRIVATE" -> false
+                        "FOLLOWERS_ONLY" -> profile.id in followingIds
+                        else -> true
+                    }
+                }
             } catch (_: Exception) { emptyList() }
 
             emit(SocialSearchResult(
@@ -1028,6 +1176,9 @@ class SupabaseSocialRepository(
         reporterUserId: String
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         val uid = currentUserId ?: reporterUserId
+        if (!isValidUuid(uid)) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid user ID"))
+        }
         try {
             val payload = buildJsonObject {
                 put("reporter_id", uid)
@@ -1038,12 +1189,19 @@ class SupabaseSocialRepository(
             postgrest.from("content_reports").insert(payload)
             Result.success(true)
         } catch (e: Exception) {
-            Result.success(true)
+            if (!SupabaseConfig.isConfigured) {
+                Result.success(true)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
     override suspend fun blockUser(targetUserId: String, currentUserId: String): Result<Boolean> = withContext(Dispatchers.IO) {
         val uid = currentUserId.ifBlank { this@SupabaseSocialRepository.currentUserId ?: "" }
+        if (!isValidUuid(uid) || !isValidUuid(targetUserId)) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid user ID"))
+        }
         try {
             val payload = buildJsonObject {
                 put("blocker_id", uid)
@@ -1054,13 +1212,20 @@ class SupabaseSocialRepository(
             unfollowCreator(targetUserId)
             Result.success(true)
         } catch (e: Exception) {
-            _blockedUserIds.value = _blockedUserIds.value + targetUserId
-            Result.success(true)
+            if (!SupabaseConfig.isConfigured) {
+                _blockedUserIds.value = _blockedUserIds.value + targetUserId
+                Result.success(true)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
     override suspend fun unblockUser(targetUserId: String, currentUserId: String): Result<Boolean> = withContext(Dispatchers.IO) {
         val uid = currentUserId.ifBlank { this@SupabaseSocialRepository.currentUserId ?: "" }
+        if (!isValidUuid(uid) || !isValidUuid(targetUserId)) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid user ID"))
+        }
         try {
             postgrest.from("user_blocks").delete {
                 filter {
@@ -1071,8 +1236,12 @@ class SupabaseSocialRepository(
             _blockedUserIds.value = _blockedUserIds.value - targetUserId
             Result.success(true)
         } catch (e: Exception) {
-            _blockedUserIds.value = _blockedUserIds.value - targetUserId
-            Result.success(true)
+            if (!SupabaseConfig.isConfigured) {
+                _blockedUserIds.value = _blockedUserIds.value - targetUserId
+                Result.success(true)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
@@ -1335,6 +1504,9 @@ class SupabaseSocialRepository(
 
     override suspend fun getOrCreateConversation(currentUserId: String, otherUserId: String): Result<Conversation> = withContext(Dispatchers.IO) {
         val uid = this@SupabaseSocialRepository.currentUserId ?: currentUserId
+        if (!isValidUuid(uid) || !isValidUuid(otherUserId)) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid user ID"))
+        }
         try {
             if (!SupabaseConfig.isConfigured) {
                 val existing = _cachedConversations.value.find { it.participant?.id == otherUserId }
@@ -1417,12 +1589,16 @@ class SupabaseSocialRepository(
             _cachedConversations.value = listOf(resultConv) + _cachedConversations.value
             Result.success(resultConv)
         } catch (e: Exception) {
-            val fallback = Conversation(
-                id = "conv_${UUID.randomUUID().toString().take(8)}",
-                participant = UserProfile(id = otherUserId, username = "user", displayName = "User")
-            )
-            _cachedConversations.value = listOf(fallback) + _cachedConversations.value
-            Result.success(fallback)
+            if (!SupabaseConfig.isConfigured) {
+                val fallback = Conversation(
+                    id = "conv_${UUID.randomUUID().toString().take(8)}",
+                    participant = UserProfile(id = otherUserId, username = "user", displayName = "User")
+                )
+                _cachedConversations.value = listOf(fallback) + _cachedConversations.value
+                Result.success(fallback)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
@@ -1501,6 +1677,9 @@ class SupabaseSocialRepository(
 
     override suspend fun sendMessage(conversationId: String, senderId: String, content: String): Result<DirectMessage> = withContext(Dispatchers.IO) {
         val uid = currentUserId ?: senderId
+        if (!isValidUuid(uid) || !isValidUuid(conversationId)) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid ID"))
+        }
         try {
             val payload = buildJsonObject {
                 put("conversation_id", conversationId)
@@ -1516,16 +1695,20 @@ class SupabaseSocialRepository(
             _cachedMessages.value = _cachedMessages.value + (conversationId to (current + inserted))
             Result.success(inserted)
         } catch (e: Exception) {
-            val fallbackMsg = DirectMessage(
-                id = "msg_${UUID.randomUUID().toString().take(8)}",
-                conversationId = conversationId,
-                senderId = uid,
-                content = content,
-                createdAt = java.time.Instant.now().toString()
-            )
-            val current = _cachedMessages.value[conversationId] ?: emptyList()
-            _cachedMessages.value = _cachedMessages.value + (conversationId to (current + fallbackMsg))
-            Result.success(fallbackMsg)
+            if (!SupabaseConfig.isConfigured) {
+                val fallbackMsg = DirectMessage(
+                    id = "msg_${UUID.randomUUID().toString().take(8)}",
+                    conversationId = conversationId,
+                    senderId = uid,
+                    content = content,
+                    createdAt = java.time.Instant.now().toString()
+                )
+                val current = _cachedMessages.value[conversationId] ?: emptyList()
+                _cachedMessages.value = _cachedMessages.value + (conversationId to (current + fallbackMsg))
+                Result.success(fallbackMsg)
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
@@ -1536,7 +1719,7 @@ class SupabaseSocialRepository(
         if (SupabaseConfig.isConfigured && uid.isNotBlank()) {
             try {
                 val notifs = postgrest.from("notifications").select(
-                    Columns.raw("*, actor:profiles(*)")
+                    Columns.raw("*, actor:profiles!actor_id(*)")
                 ) {
                     filter { eq("recipient_id", uid) }
                     order("created_at", Order.DESCENDING)
@@ -1628,7 +1811,7 @@ class SupabaseSocialRepository(
             author = authorUser,
             title = plan.title,
             description = plan.description,
-            planTemplateJson = templateJson ?: "{}",
+            planTemplateJson = templateJson ?: _cachedTemplateJsons[plan.id] ?: "{}",
             durationDays = plan.durationDays,
             tags = plan.tags,
             category = plan.category,
@@ -1729,4 +1912,327 @@ class SupabaseSocialRepository(
             emit(emptyList<CloudUser>())
         }
     }.flowOn(Dispatchers.IO)
+
+    private fun seedOfflineData() {
+        val sarah = UserProfile(
+            id = "user_sarah",
+            username = "sarah_fit",
+            displayName = "Sarah Jenkins",
+            bio = "Certified strength & mindset coach. Helping 50k+ build daily morning rituals.",
+            isCreator = true,
+            followersCount = 1420,
+            followingCount = 45,
+            publicPlansCount = 2
+        )
+        val cal = UserProfile(
+            id = "user_deep_work",
+            username = "cal_protocols",
+            displayName = "Cal Newport Fanclub",
+            bio = "Productivity researcher studying deep work, focus blocks, and digital minimalism.",
+            isCreator = true,
+            followersCount = 3890,
+            followingCount = 12,
+            publicPlansCount = 2
+        )
+        val zenMind = UserProfile(
+            id = "user_zen_mind",
+            username = "zen_mind",
+            displayName = "Elena Rostova",
+            bio = "Mindfulness practitioner and breathwork guide.",
+            isCreator = false,
+            followersCount = 890,
+            followingCount = 67,
+            publicPlansCount = 1
+        )
+        val alex = UserProfile(
+            id = "user_alex",
+            username = "alex",
+            displayName = "Alex Rivera",
+            bio = "Senior Python engineer & educator. Building practical coding curriculums.",
+            isCreator = true,
+            followersCount = 4200,
+            followingCount = 120,
+            publicPlansCount = 1
+        )
+        val rahul = UserProfile(
+            id = "user_rahul",
+            username = "rahul",
+            displayName = "Rahul Sharma",
+            bio = "Tech mentor, ex-FAANG interviewer. Helping developers ace technical interviews.",
+            isCreator = true,
+            followersCount = 6100,
+            followingCount = 85,
+            publicPlansCount = 1
+        )
+
+        _cachedProfiles.value = mapOf(
+            sarah.id to sarah,
+            cal.id to cal,
+            zenMind.id to zenMind,
+            alex.id to alex,
+            rahul.id to rahul
+        )
+
+        val alexTemplate = PlanTemplateDto(
+            title = "Python in 30 Days",
+            description = "Master core Python syntax, OOP, modules, and build 4 real-world projects from scratch in 30 days.",
+            targetDurationDays = 30,
+            defaultTaskDurationDays = 1,
+            tags = listOf("python", "coding", "programming", "beginners"),
+            category = "Technology",
+            author = AuthorDto(alex.id, alex.displayName, alex.avatarUrl, alex.isCreator),
+            tasks = listOf(
+                TaskTemplateDto("Variables, Loops & Control Flow", "1,2,3,4,5,6,7", 1, listOf("Syntax review", "Writing condition logic", "10 practice problems")),
+                TaskTemplateDto("Functions & Modules", "1,2,3,4,5,6,7", 1, listOf("Lambda functions", "Importing packages", "Building a math helper module")),
+                TaskTemplateDto("Data Structures: Lists, Dicts & Sets", "1,2,3,4,5,6,7", 1, listOf("List comprehensions", "Dictionary lookups", "Time complexity analysis")),
+                TaskTemplateDto("Building a CLI Weather Application", "1,2,3,4,5,6,7", 1, listOf("Fetch JSON from API", "Parse responses", "Terminal UI formatting"))
+            )
+        )
+
+        val rahulTemplate = PlanTemplateDto(
+            title = "Python Interview Preparation",
+            description = "Comprehensive Python DSA and coding interview roadmap: sliding window, graphs, dynamic programming, and mock interviews.",
+            targetDurationDays = 21,
+            defaultTaskDurationDays = 1,
+            tags = listOf("python", "interview", "leetcode", "algorithms"),
+            category = "Career",
+            author = AuthorDto(rahul.id, rahul.displayName, rahul.avatarUrl, rahul.isCreator),
+            tasks = listOf(
+                TaskTemplateDto("Two Pointers & Sliding Window", "1,2,3,4,5", 1, listOf("Trapping Rain Water", "Longest Substring Without Repeating Characters")),
+                TaskTemplateDto("Trees & Graph Traversal", "1,2,3,4,5", 1, listOf("BFS/DFS implementations", "Lowest Common Ancestor", "Cycle Detection")),
+                TaskTemplateDto("Dynamic Programming Fundamentals", "1,2,3,4,5", 1, listOf("Memoization vs Tabulation", "0/1 Knapsack", "Coin Change")),
+                TaskTemplateDto("Mock Technical Interview & Retrospective", "6", 1, listOf("45-min timed coding", "Big-O verbal walkthrough", "Self-critique log"))
+            )
+        )
+
+        val sarahTemplate = PlanTemplateDto(
+            title = "30-Day Morning Routine",
+            description = "Wake up at 5AM, hydrate, meditate for 10 minutes, and write your daily focus goals before touching your phone.",
+            targetDurationDays = 30,
+            defaultTaskDurationDays = 1,
+            tags = listOf("morning", "discipline", "mindset"),
+            category = "Health & Fitness",
+            author = AuthorDto(sarah.id, sarah.displayName, sarah.avatarUrl, sarah.isCreator),
+            tasks = listOf(
+                TaskTemplateDto("Drink 500ml Water + Electrolytes", "1,2,3,4,5,6,7", 1, listOf("Room temp water", "No sugar added")),
+                TaskTemplateDto("10 Min Mindfulness Meditation", "1,2,3,4,5,6,7", 1, listOf("Focus on breath", "Box breathing")),
+                TaskTemplateDto("Write Top 3 Priority Outcomes", "1,2,3,4,5,6,7", 1, listOf("1 Main Lever", "2 Secondary Tasks")),
+                TaskTemplateDto("20 Min Movement / Mobility", "1,2,3,4,5,6,7", 1, listOf("Dynamic stretching", "Light walk or yoga"))
+            )
+        )
+
+        val calTemplate = PlanTemplateDto(
+            title = "Deep Work Protocol",
+            description = "4 hours of distraction-free focused work every weekday. No social media, no email during core blocks.",
+            targetDurationDays = 21,
+            defaultTaskDurationDays = 1,
+            tags = listOf("productivity", "focus", "career"),
+            category = "Productivity",
+            author = AuthorDto(cal.id, cal.displayName, cal.avatarUrl, cal.isCreator),
+            tasks = listOf(
+                TaskTemplateDto("Deep Work Block 1 (90m)", "1,2,3,4,5", 1, listOf("Phone in other room", "Close browser tabs", "Work on hard problem")),
+                TaskTemplateDto("Mind Reset Break (20m)", "1,2,3,4,5", 1, listOf("Walk outside", "No screens")),
+                TaskTemplateDto("Deep Work Block 2 (90m)", "1,2,3,4,5", 1, listOf("Execute primary deliverable")),
+                TaskTemplateDto("Daily Shutdown Ritual", "1,2,3,4,5", 1, listOf("Check calendar for tomorrow", "Clear task inbox", "Say 'Schedule shutdown complete'"))
+            )
+        )
+
+        val zenTemplate = PlanTemplateDto(
+            title = "Mindfulness Month",
+            description = "Reset your nervous system with daily guided breathwork, gratitude reflections, and zero screen time 1 hour before bed.",
+            targetDurationDays = 30,
+            defaultTaskDurationDays = 1,
+            tags = listOf("mentalhealth", "meditation", "sleep"),
+            category = "Wellness",
+            author = AuthorDto(zenMind.id, zenMind.displayName, zenMind.avatarUrl, zenMind.isCreator),
+            tasks = listOf(
+                TaskTemplateDto("Morning Sun & Gratitude (10m)", "1,2,3,4,5,6,7", 1, listOf("Get direct sunlight", "Name 3 things you are grateful for")),
+                TaskTemplateDto("Midday Digital Detox (30m)", "1,2,3,4,5,6,7", 1, listOf("Eat lunch screen-free")),
+                TaskTemplateDto("Evening Wind Down & Read", "1,2,3,4,5,6,7", 1, listOf("Screens off at 9:30 PM", "Read 15 pages of physical book"))
+            )
+        )
+
+        val sarahTemplate2 = PlanTemplateDto(
+            title = "Couch to 5K Sprint",
+            description = "Progressive interval running program. Alternate between walking and jogging to build cardiovascular endurance safely.",
+            targetDurationDays = 30,
+            defaultTaskDurationDays = 1,
+            tags = listOf("running", "fitness", "cardio"),
+            category = "Fitness",
+            author = AuthorDto(sarah.id, sarah.displayName, sarah.avatarUrl, sarah.isCreator),
+            tasks = listOf(
+                TaskTemplateDto("Interval Jog / Walk (25m)", "1,3,5", 1, listOf("5m warm-up walk", "6x (60s jog, 90s walk)", "5m cool-down")),
+                TaskTemplateDto("Leg Mobility & Stretching", "2,4,6", 1, listOf("Hamstring stretch", "Calf raises", "Foam roll quads"))
+            )
+        )
+
+        val calTemplate2 = PlanTemplateDto(
+            title = "Evening Shutdown Protocol",
+            description = "A structured end-of-day shutdown to completely detach from work and guarantee restorative sleep.",
+            targetDurationDays = 14,
+            defaultTaskDurationDays = 1,
+            tags = listOf("productivity", "sleep", "habits"),
+            category = "Productivity",
+            author = AuthorDto(cal.id, cal.displayName, cal.avatarUrl, cal.isCreator),
+            tasks = listOf(
+                TaskTemplateDto("Review Tomorrow's Agenda", "1,2,3,4,5", 1, listOf("Check calendar", "Pick top 3 objectives")),
+                TaskTemplateDto("Complete Shutdown Phrase", "1,2,3,4,5", 1, listOf("Close email and Slack", "Say: Schedule shutdown complete"))
+            )
+        )
+
+        _cachedTemplateJsons["post_alex_01"] = json.encodeToString(PlanTemplateDto.serializer(), alexTemplate)
+        _cachedTemplateJsons["post_rahul_01"] = json.encodeToString(PlanTemplateDto.serializer(), rahulTemplate)
+        _cachedTemplateJsons["post_sarah_01"] = json.encodeToString(PlanTemplateDto.serializer(), sarahTemplate)
+        _cachedTemplateJsons["post_cal_02"] = json.encodeToString(PlanTemplateDto.serializer(), calTemplate)
+        _cachedTemplateJsons["post_zen_03"] = json.encodeToString(PlanTemplateDto.serializer(), zenTemplate)
+        _cachedTemplateJsons["post_sarah_04"] = json.encodeToString(PlanTemplateDto.serializer(), sarahTemplate2)
+        _cachedTemplateJsons["post_cal_05"] = json.encodeToString(PlanTemplateDto.serializer(), calTemplate2)
+
+        val publicPlans = listOf(
+            PublicPlan(
+                id = "post_alex_01",
+                creatorId = alex.id,
+                title = alexTemplate.title,
+                description = alexTemplate.description,
+                category = alexTemplate.category,
+                tags = alexTemplate.tags,
+                durationDays = alexTemplate.targetDurationDays,
+                likesCount = 485,
+                usesCount = 2930,
+                commentsCount = 1,
+                creator = alex
+            ),
+            PublicPlan(
+                id = "post_rahul_01",
+                creatorId = rahul.id,
+                title = rahulTemplate.title,
+                description = rahulTemplate.description,
+                category = rahulTemplate.category,
+                tags = rahulTemplate.tags,
+                durationDays = rahulTemplate.targetDurationDays,
+                likesCount = 612,
+                usesCount = 4120,
+                commentsCount = 0,
+                creator = rahul
+            ),
+            PublicPlan(
+                id = "post_sarah_01",
+                creatorId = sarah.id,
+                title = sarahTemplate.title,
+                description = sarahTemplate.description,
+                category = sarahTemplate.category,
+                tags = sarahTemplate.tags,
+                durationDays = sarahTemplate.targetDurationDays,
+                likesCount = 248,
+                usesCount = 1420,
+                commentsCount = 3,
+                creator = sarah
+            ),
+            PublicPlan(
+                id = "post_cal_02",
+                creatorId = cal.id,
+                title = calTemplate.title,
+                description = calTemplate.description,
+                category = calTemplate.category,
+                tags = calTemplate.tags,
+                durationDays = calTemplate.targetDurationDays,
+                likesCount = 189,
+                usesCount = 890,
+                commentsCount = 2,
+                creator = cal
+            ),
+            PublicPlan(
+                id = "post_zen_03",
+                creatorId = zenMind.id,
+                title = zenTemplate.title,
+                description = zenTemplate.description,
+                category = zenTemplate.category,
+                tags = zenTemplate.tags,
+                durationDays = zenTemplate.targetDurationDays,
+                likesCount = 312,
+                usesCount = 2100,
+                commentsCount = 1,
+                creator = zenMind
+            ),
+            PublicPlan(
+                id = "post_sarah_04",
+                creatorId = sarah.id,
+                title = sarahTemplate2.title,
+                description = sarahTemplate2.description,
+                category = sarahTemplate2.category,
+                tags = sarahTemplate2.tags,
+                durationDays = sarahTemplate2.targetDurationDays,
+                likesCount = 175,
+                usesCount = 980,
+                commentsCount = 0,
+                creator = sarah
+            ),
+            PublicPlan(
+                id = "post_cal_05",
+                creatorId = cal.id,
+                title = calTemplate2.title,
+                description = calTemplate2.description,
+                category = calTemplate2.category,
+                tags = calTemplate2.tags,
+                durationDays = calTemplate2.targetDurationDays,
+                likesCount = 142,
+                usesCount = 760,
+                commentsCount = 0,
+                creator = cal
+            )
+        )
+
+        _cachedPublicPlans.value = publicPlans
+
+        val comment1 = SocialComment(
+            id = "comm_1",
+            userId = cal.id,
+            planId = "post_sarah_01",
+            content = "This morning routine changed my life. Pairing the 500ml water with electrolytes completely eliminates morning brain fog.",
+            likesCount = 34,
+            author = cal
+        )
+        val reply1 = SocialComment(
+            id = "comm_1_reply_1",
+            userId = sarah.id,
+            planId = "post_sarah_01",
+            parentCommentId = "comm_1",
+            content = "Spot on! That hydration boost is non-negotiable for mental clarity.",
+            likesCount = 18,
+            author = sarah
+        )
+        val reply2 = SocialComment(
+            id = "comm_1_reply_2",
+            userId = zenMind.id,
+            planId = "post_sarah_01",
+            parentCommentId = "comm_1",
+            content = "Do you take the electrolytes before or after the 10 min meditation?",
+            likesCount = 5,
+            author = zenMind
+        )
+        val reply3 = SocialComment(
+            id = "comm_1_reply_3",
+            userId = cal.id,
+            planId = "post_sarah_01",
+            parentCommentId = "comm_1",
+            content = "Right when waking up, before meditation. Helps prime the nervous system for focus.",
+            likesCount = 12,
+            author = cal
+        )
+        val comment2 = SocialComment(
+            id = "comm_2",
+            userId = zenMind.id,
+            planId = "post_sarah_01",
+            content = "Just joined this today! Day 1 complete. Anyone else starting today?",
+            likesCount = 9,
+            author = zenMind
+        )
+
+        _cachedComments.value = mapOf(
+            "post_sarah_01" to listOf(
+                comment1.copy(replies = listOf(reply1, reply2, reply3)),
+                comment2
+            )
+        )
+    }
 }

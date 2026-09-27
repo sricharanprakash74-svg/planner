@@ -35,14 +35,6 @@ class AuthViewModel(
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
-    private fun triggerCloudSync() {
-        appContext?.let { ctx ->
-            try {
-                com.example.plannerapp.sync.SyncWorker.enqueue(ctx)
-            } catch (_: Exception) {}
-        }
-    }
-
     fun toggleAuthMode() {
         _uiState.update { 
             it.copy(
@@ -79,7 +71,6 @@ class AuthViewModel(
                     ?: userEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
 
                 syncLocalUserWithCloud(cloudUid, userEmail, displayName)
-                triggerCloudSync()
 
                 _uiState.update { 
                     it.copy(
@@ -127,7 +118,6 @@ class AuthViewModel(
                 }
 
                 syncLocalUserWithCloud(cloudUid, userEmail, name)
-                triggerCloudSync()
 
                 _uiState.update { 
                     it.copy(
@@ -163,7 +153,6 @@ class AuthViewModel(
                             ?: userEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
 
                         syncLocalUserWithCloud(cloudUid, userEmail, displayName)
-                        triggerCloudSync()
 
                         _uiState.update { 
                             it.copy(
@@ -256,9 +245,19 @@ class AuthViewModel(
                     val isCompleted = profile["onboarding_completed"]?.toString()?.trim('"')?.toBooleanStrictOrNull() == true
                     val remoteName = profile["display_name"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
                     val remoteAvatar = profile["avatar_url"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
+                    val remoteUsername = profile["username"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
                     
                     if (remoteName != null || remoteAvatar != null) {
                         userDao.updateProfile(targetUserId, remoteName ?: displayName, remoteAvatar)
+                    }
+                    if (remoteUsername != null) {
+                        userDao.updateOnboardingProfile(
+                            userId = targetUserId,
+                            username = remoteUsername,
+                            categories = existing?.categories ?: "[]",
+                            interests = existing?.interests ?: "[]",
+                            level = existing?.experienceLevel ?: "BEGINNER"
+                        )
                     }
                     if (isCompleted) {
                         userDao.markOnboardingComplete(targetUserId)

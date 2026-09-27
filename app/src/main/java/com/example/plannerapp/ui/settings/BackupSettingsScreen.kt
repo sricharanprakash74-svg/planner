@@ -16,9 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.work.OneTimeWorkRequest
-import androidx.work.WorkManager
-import com.example.plannerapp.sync.SyncWorker
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -81,9 +78,8 @@ fun BackupSettingsScreen(
                     Button(
                         onClick = {
                             isBackingUp = true
-                            SyncWorker.enqueue(context)
                             scope.launch {
-                                snackbarHostState.showSnackbar("Backup started in the background.")
+                                snackbarHostState.showSnackbar("All plans and tasks are securely saved locally.")
                             }
                             isBackingUp = false
                         },

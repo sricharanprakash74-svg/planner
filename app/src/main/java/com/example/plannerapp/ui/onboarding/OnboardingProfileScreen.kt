@@ -71,7 +71,7 @@ fun OnboardingProfileScreen(
         uri?.let { onAvatarSelected(it) }
     }
 
-    val isUsernameValid = username.isBlank() || usernameValidationState == UsernameValidationState.VALID
+    val isUsernameValid = username.isNotBlank() && usernameValidationState == UsernameValidationState.VALID
     val isCtaEnabled = displayName.isNotBlank() && isUsernameValid && usernameValidationState != UsernameValidationState.CHECKING
 
     Column(
@@ -199,7 +199,7 @@ fun OnboardingProfileScreen(
         OutlinedTextField(
             value = username,
             onValueChange = onUsernameChange,
-            placeholder = { Text("Username (optional)", style = MaterialTheme.typography.bodyLarge, color = AppDisabledText) },
+            placeholder = { Text("Choose your username", style = MaterialTheme.typography.bodyLarge, color = AppDisabledText) },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.AlternateEmail,
@@ -252,12 +252,18 @@ fun OnboardingProfileScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = AppSuccess
                     )
+                } else if (username.isBlank()) {
+                    Text(
+                        text = "Choose a unique username to identify you in the community",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AppDisabledText
+                    )
                 }
             },
             singleLine = true,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (usernameValidationState == UsernameValidationState.INVALID || (usernameValidationState == UsernameValidationState.VALID && username.isNotBlank())) 74.dp else AppDimens.InputHeight),
+                .height(if (usernameValidationState == UsernameValidationState.INVALID || (usernameValidationState == UsernameValidationState.VALID && username.isNotBlank()) || username.isBlank()) 74.dp else AppDimens.InputHeight),
             shape = RoundedCornerShape(AppDimens.CornerCompact),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,

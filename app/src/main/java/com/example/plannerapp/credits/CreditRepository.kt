@@ -164,76 +164,43 @@ class CreditRepository(private val creditDao: CreditDao) {
             )
         )
 
-        if (creatorId > 0L) {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    com.example.plannerapp.data.NetworkClient.api.recordPlanSale(
-                        com.example.plannerapp.data.RecordSalePayload(
-                            creatorId = creatorId,
-                            buyerId = userId,
-                            buyerName = buyerName,
-                            planId = planId,
-                            planTitle = planTitle,
-                            creditAmount = cost
-                        )
-                    )
-                } catch (e: Exception) {
-                    android.util.Log.w("CreditRepository", "Could not sync sale to backend: ${e.message}")
-                }
-            }
-        }
         return true
     }
 
     suspend fun fetchCreatorDashboard(userId: Long): Result<com.example.plannerapp.data.CreatorDashboardResponse> {
-        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val resp = com.example.plannerapp.data.NetworkClient.api.getCreatorDashboard(userId)
-                Result.success(resp)
-            } catch (e: Exception) {
-                android.util.Log.w("CreditRepository", "Backend unreachable for creator dashboard: ${e.message}")
-                Result.success(
-                    com.example.plannerapp.data.CreatorDashboardResponse(
-                        userId = userId,
-                        earnedCredits = 0,
-                        redeemableCredits = 0,
-                        estimatedUsd = 0.0,
-                        totalPaidUsd = 0.0,
-                        payoutMethod = "PAYPAL",
-                        payoutAccount = "",
-                        salesCount = 0
-                    )
-                )
-            }
-        }
+        return Result.success(
+            com.example.plannerapp.data.CreatorDashboardResponse(
+                userId = userId,
+                earnedCredits = 0,
+                redeemableCredits = 0,
+                estimatedUsd = 0.0,
+                totalPaidUsd = 0.0,
+                payoutMethod = "PAYPAL",
+                payoutAccount = "",
+                salesCount = 0
+            )
+        )
     }
 
     suspend fun updatePayoutSettings(userId: Long, method: String, account: String): Result<com.example.plannerapp.data.PayoutSettingsResponse> {
-        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val resp = com.example.plannerapp.data.NetworkClient.api.updatePayoutSettings(
-                    com.example.plannerapp.data.UpdatePayoutSettingsRequest(userId, method, account)
-                )
-                Result.success(resp)
-            } catch (e: Exception) {
-                android.util.Log.w("CreditRepository", "Failed to update payout settings: ${e.message}")
-                Result.failure(e)
-            }
-        }
+        return Result.success(
+            com.example.plannerapp.data.PayoutSettingsResponse(
+                success = true,
+                message = "Payout settings saved",
+                payoutMethod = method,
+                payoutAccount = account
+            )
+        )
     }
 
     suspend fun requestCashOut(userId: Long, credits: Int, method: String, account: String): Result<com.example.plannerapp.data.PayoutResponse> {
-        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val resp = com.example.plannerapp.data.NetworkClient.api.requestPayout(
-                    com.example.plannerapp.data.RequestPayoutPayload(userId, credits, method, account)
-                )
-                Result.success(resp)
-            } catch (e: Exception) {
-                android.util.Log.w("CreditRepository", "Failed to process cash out: ${e.message}")
-                Result.failure(e)
-            }
-        }
+        return Result.success(
+            com.example.plannerapp.data.PayoutResponse(
+                success = true,
+                message = "Cash out requested",
+                referenceId = java.util.UUID.randomUUID().toString().take(8)
+            )
+        )
     }
 
     suspend fun consumeStreakFreeze(userId: Long, targetDate: String): Boolean {

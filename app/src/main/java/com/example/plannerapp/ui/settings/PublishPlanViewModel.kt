@@ -55,6 +55,10 @@ class PublishPlanViewModel(
             _publishStatus.value = PublishStatus.Loading
             try {
                 val user = userDao.getActiveUserOnce() ?: throw IllegalStateException("No active user")
+                if (com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull() == null && user.cloudUserId.isNullOrBlank()) {
+                    _publishStatus.value = PublishStatus.Error("Please sign in to publish plans to the online community.")
+                    return@launch
+                }
                 val templates = repository.getTemplatesForPlan(planId)
                 val plan = repository.getPlansForUser(user.userId).first().find { it.planId == planId }
                     ?: throw IllegalStateException("Plan not found")

@@ -317,7 +317,7 @@ class PlannerRepository(private val dao: PlannerDao) {
 
             // Award viral clone bonus (+100 credits) to creator of shared plan
             val creatorId = template.author.userId.toLongOrNull()
-            if (creatorId != null && creatorId != targetUserId) {
+            if (creatorId != null && creatorId > 0 && creatorId != targetUserId) {
                 creditRepository?.awardViralCloneBonus(
                     creatorUserId = creatorId,
                     joinerUserId = targetUserId,
