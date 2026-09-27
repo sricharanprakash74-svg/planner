@@ -1,0 +1,13 @@
+## local.properties example file
+# Copy this file to local.properties and fill in your actual credentials.
+# local.properties is ignored by git and will never be committed to source control.
+
+# Location of the SDK. This is only used by Gradle.
+# sdk.dir=/path/to/android/sdk
+
+# Supabase Project Configuration
+# supabase.url=https://your-project.supabase.co
+# supabase.anonKey=your-anon-key-placeholder
+
+# Google Cloud OAuth Client ID (for Credential Manager One-Tap Sign In)
+# google.serverClientId=your-google-server-client-id.apps.googleusercontent.com

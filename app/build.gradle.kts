@@ -1,9 +1,29 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
   alias(libs.plugins.ksp)
 }
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(localPropertiesFile.inputStream())
+}
+
+val supabaseUrl = localProperties.getProperty("supabase.url")
+    ?: localProperties.getProperty("SUPABASE_URL")
+    ?: "https://your-project.supabase.co"
+
+val supabaseAnonKey = localProperties.getProperty("supabase.anonKey")
+    ?: localProperties.getProperty("SUPABASE_ANON_KEY")
+    ?: "your-anon-key-placeholder"
+
+val googleServerClientId = localProperties.getProperty("google.serverClientId")
+    ?: localProperties.getProperty("GOOGLE_SERVER_CLIENT_ID")
+    ?: "your-google-server-client-id.apps.googleusercontent.com"
 
 android {
     namespace = "com.example.plannerapp"
@@ -15,6 +35,10 @@ android {
         versionCode = 1
         versionName = "1.0"
         multiDexEnabled = true
+
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+        buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"$googleServerClientId\"")
     }
 
     buildTypes {
@@ -31,7 +55,7 @@ android {
     buildFeatures {
       compose = true
       aidl = false
-      buildConfig = false
+      buildConfig = true
       shaders = false
     }
 
