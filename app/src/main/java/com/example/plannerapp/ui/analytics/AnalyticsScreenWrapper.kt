@@ -10,10 +10,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.example.plannerapp.theme.AppDimens
+import com.example.plannerapp.ui.analytics.components.AnalyticsGraphMapper
+import com.example.plannerapp.ui.analytics.components.FluidSplineAreaGraph
+import com.example.plannerapp.ui.analytics.components.MultiWeekPastelChart
 import com.example.plannerapp.ui.components.AnalyticsSkeleton
 import com.example.plannerapp.ui.profile.ProfileViewModel
 import com.example.plannerapp.ui.state.Resource
@@ -83,10 +87,23 @@ fun AnalyticsScreenWrapper(
                 .padding(AppDimens.Space16),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Stock Price-Style Consistency Graph
-            ConsistencyStockChartCard(
-                weeklyCheckins = uiState.weeklyCheckins,
-                streak = uiState.streak
+            val graphUiState = remember(uiState.weeklyCheckins) {
+                AnalyticsGraphMapper.mapFromCheckins(uiState.weeklyCheckins)
+            }
+
+            // Modernized Pastel Analytics Visualization Suite
+            // Component A: Continuous Spline Wave Area Chart
+            FluidSplineAreaGraph(
+                uiState = graphUiState,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(AppDimens.Space16))
+
+            // Component B: Multi-Week Pastel Bar Chart (Week 1–5)
+            MultiWeekPastelChart(
+                uiState = graphUiState,
+                modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(modifier = Modifier.height(AppDimens.Space24))
