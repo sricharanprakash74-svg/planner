@@ -53,6 +53,27 @@ abstract class PlannerDatabase : RoomDatabase() {
     abstract fun planEntitlementDao(): PlanEntitlementDao
 
     companion object {
+        val MIGRATION_8_9 = object : androidx.room.migration.Migration(8, 9) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // Creator monetization tables introduced in version 9
+                db.execSQL("CREATE TABLE IF NOT EXISTS creator_profiles (creatorId TEXT NOT NULL, userId TEXT NOT NULL, handle TEXT NOT NULL, bio TEXT NOT NULL, isVerified INTEGER NOT NULL, kycStatus TEXT NOT NULL, stripeConnectedAccountId TEXT, pendingBalanceCredits INTEGER NOT NULL, availableBalanceCredits INTEGER NOT NULL, lifetimeEarnedUsd REAL NOT NULL, PRIMARY KEY(creatorId))")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_creator_profiles_userId ON creator_profiles (userId)")
+
+                db.execSQL("CREATE TABLE IF NOT EXISTS creator_plan_versions (versionId TEXT NOT NULL, planId TEXT NOT NULL, creatorId TEXT NOT NULL, versionTag TEXT NOT NULL, isBreakingChange INTEGER NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL, durationDays INTEGER NOT NULL, creditPrice INTEGER NOT NULL, freemiumPreviewDays INTEGER NOT NULL, pacingMode TEXT NOT NULL, isMandatoryReflectionEnabled INTEGER NOT NULL, defaultReflectionPrompt TEXT NOT NULL, enrolledUsersCount INTEGER NOT NULL, completionRate REAL NOT NULL, publishedAt INTEGER NOT NULL, PRIMARY KEY(versionId), FOREIGN KEY(creatorId) REFERENCES creator_profiles(creatorId) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_creator_plan_versions_creatorId ON creator_plan_versions (creatorId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_creator_plan_versions_planId ON creator_plan_versions (planId)")
+
+                db.execSQL("CREATE TABLE IF NOT EXISTS plan_entitlements (entitlementId TEXT NOT NULL, planId TEXT NOT NULL, versionId TEXT NOT NULL, userId TEXT NOT NULL, licenseSignature TEXT NOT NULL, grantedAt INTEGER NOT NULL, isActive INTEGER NOT NULL, PRIMARY KEY(entitlementId))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_plan_entitlements_planId ON plan_entitlements (planId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_plan_entitlements_userId ON plan_entitlements (userId)")
+
+                db.execSQL("CREATE TABLE IF NOT EXISTS creator_ledger_entries (transactionId TEXT NOT NULL, creatorId TEXT NOT NULL, planId TEXT, planTitle TEXT, amountCredits INTEGER NOT NULL, equivalentUsd REAL NOT NULL, entryType TEXT NOT NULL, status TEXT NOT NULL, escrowReleaseDate INTEGER, createdAt INTEGER NOT NULL, PRIMARY KEY(transactionId))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_creator_ledger_entries_creatorId ON creator_ledger_entries (creatorId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_creator_ledger_entries_planId ON creator_ledger_entries (planId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_creator_ledger_entries_status ON creator_ledger_entries (status)")
+            }
+        }
+
         val MIGRATION_9_10 = object : androidx.room.migration.Migration(9, 10) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE users ADD COLUMN categories TEXT NOT NULL DEFAULT '[]'")
@@ -120,7 +141,7 @@ abstract class PlannerDatabase : RoomDatabase() {
                     PlannerDatabase::class.java,
                     "planner_database"
                 )
-                .addMigrations(MIGRATION_9_10, MIGRATION_10_11)
+                .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                 .build()
                 INSTANCE = instance
                 instance
