@@ -111,6 +111,9 @@ dependencies {
   implementation(supabaseBom)
   implementation("io.github.jan-tennert.supabase:auth-kt")
   implementation("io.github.jan-tennert.supabase:compose-auth")
+  implementation("io.github.jan-tennert.supabase:postgrest-kt")
+  implementation("io.github.jan-tennert.supabase:realtime-kt")
+  implementation("io.github.jan-tennert.supabase:storage-kt")
 
   // Ktor Client (Engine for Supabase)
   implementation("io.ktor:ktor-client-android:3.0.3")

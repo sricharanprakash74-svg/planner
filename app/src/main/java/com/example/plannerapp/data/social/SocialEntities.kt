@@ -17,6 +17,8 @@ data class CloudUser(
     val isCreator: Boolean = false,
     val bio: String = "",
     val followerCount: Int = 0,
+    val followingCount: Int = 0,
+    val publicPlansCount: Int = 0,
     val totalMembersJoined: Int = 0
 )
 
@@ -37,6 +39,8 @@ data class CommunityPost(
     val isSaved: Boolean = false,
     val isPaid: Boolean = false,
     val skuId: String? = null,
+    val creditCost: Int = 0,
+    val visibility: String = "public",
     val createdAt: Long = System.currentTimeMillis()
 ) {
     val score: Int
@@ -52,7 +56,8 @@ data class PostComment(
     val parentCommentId: String? = null,
     val upvoteCount: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
-    val replies: List<PostComment> = emptyList()
+    val replies: List<PostComment> = emptyList(),
+    val isLiked: Boolean = false
 )
 
 @Serializable
@@ -60,4 +65,20 @@ data class PostVote(
     val userId: String,
     val postId: String,
     val voteType: VoteType
+)
+
+@Serializable
+data class SocialSearchResult(
+    val plans: List<CommunityPost> = emptyList(),
+    val creators: List<CloudUser> = emptyList()
+)
+
+@Serializable
+data class Report(
+    val reportId: String,
+    val targetId: String,
+    val targetType: String, // "PLAN", "COMMENT", "USER"
+    val reason: String,
+    val reporterUserId: String,
+    val createdAt: Long = System.currentTimeMillis()
 )

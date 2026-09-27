@@ -7,17 +7,25 @@ import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 
 enum class FeedFilter {
     TRENDING,
+    FOLLOWING,
     RECENT,
-    MOST_DOWNLOADED
+    MOST_DOWNLOADED,
+    FOR_YOU
 }
 
 interface SocialRepository {
-    fun getPosts(filter: FeedFilter = FeedFilter.TRENDING, query: String = ""): Flow<List<CommunityPost>>
+    fun getPosts(
+        filter: FeedFilter = FeedFilter.TRENDING, 
+        query: String = "",
+        userCategories: List<String> = emptyList(),
+        userInterests: List<String> = emptyList()
+    ): Flow<List<CommunityPost>>
     fun getPostById(postId: String): Flow<CommunityPost?>
     fun getPostsByCreator(userId: String): Flow<List<CommunityPost>>
     suspend fun createPost(
@@ -27,10 +35,15 @@ interface SocialRepository {
         planTemplateJson: String,
         durationDays: Int,
         tags: List<String>,
-        category: String
+        category: String,
+        isPaid: Boolean = false,
+        creditCost: Int = 0,
+        visibility: String = "public"
     ): Result<CommunityPost>
+    suspend fun deletePost(postId: String, userId: String): Result<Boolean>
     suspend fun votePost(postId: String, voteType: VoteType): Result<CommunityPost>
     suspend fun toggleSavePost(postId: String): Result<Boolean>
+    fun getSavedPosts(): Flow<List<CommunityPost>>
     fun getComments(postId: String): Flow<List<PostComment>>
     suspend fun addComment(
         postId: String,
@@ -38,43 +51,107 @@ interface SocialRepository {
         content: String,
         parentCommentId: String? = null
     ): Result<PostComment>
+    suspend fun deleteComment(postId: String, commentId: String, userId: String): Result<Boolean>
+    suspend fun toggleCommentLike(postId: String, commentId: String): Result<PostComment>
     suspend fun incrementJoinCount(postId: String): Result<Int>
     fun getUserProfile(userId: String): Flow<CloudUser?>
     fun isFollowingCreator(userId: String): Flow<Boolean>
+    fun getFollowingList(): Flow<Set<String>>
     suspend fun followCreator(userId: String): Result<Boolean>
     suspend fun unfollowCreator(userId: String): Result<Boolean>
     suspend fun upsertCloudUser(user: CloudUser): Result<CloudUser>
+    fun search(query: String): Flow<SocialSearchResult>
+    fun searchCreators(query: String): Flow<List<CloudUser>>
+    // Distinct Plan Relations
+    suspend fun usePlan(planId: String, userId: String): Result<Int>
+    suspend fun toggleFollowPlan(planId: String, userId: String): Result<Boolean>
+    fun isFollowingPlan(planId: String, userId: String): Flow<Boolean>
+
+    // Direct Messaging
+    fun getConversations(userId: String): Flow<List<Conversation>>
+    suspend fun getOrCreateConversation(currentUserId: String, otherUserId: String): Result<Conversation>
+    fun getMessages(conversationId: String): Flow<List<DirectMessage>>
+    suspend fun sendMessage(conversationId: String, senderId: String, content: String): Result<DirectMessage>
+
+    // Notifications
+    fun getNotifications(userId: String): Flow<List<SocialNotification>>
+    suspend fun markNotificationAsRead(notificationId: String): Result<Boolean>
+    suspend fun markAllNotificationsAsRead(userId: String): Result<Boolean>
+
+    // Safety & Moderation
+    suspend fun reportContent(targetId: String, targetType: String, reason: String, reporterUserId: String): Result<Boolean>
+    suspend fun blockUser(targetUserId: String, currentUserId: String): Result<Boolean>
+    suspend fun unblockUser(targetUserId: String, currentUserId: String): Result<Boolean>
+    fun getBlockedUsers(currentUserId: String): Flow<Set<String>>
+
+    // Plan Versioning & Evolution
+    fun checkForPlanUpdate(sourcePlanId: String, currentLocalVersion: String): Flow<PlanVersionUpdate?>
+
+    // Privacy & Relationship Matrix
+    fun getPrivacySettings(userId: String): Flow<PrivacySettings?>
+    fun canMessageUser(targetUserId: String): Flow<Boolean>
+    fun getViewerRelationship(targetUserId: String): Flow<RelationshipStatus>
+
+    // Connects: Followers & Following
+    fun getFollowersUsers(userId: String): Flow<List<CloudUser>>
+    fun getFollowingUsers(userId: String): Flow<List<CloudUser>>
 }
 
 class InMemorySocialRepository(
     private val gson: Gson = Gson()
 ) : SocialRepository {
 
+    override fun getFollowersUsers(userId: String): Flow<List<CloudUser>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    override fun getFollowingUsers(userId: String): Flow<List<CloudUser>> = kotlinx.coroutines.flow.flowOf(emptyList())
+
     private val _posts = MutableStateFlow<List<CommunityPost>>(emptyList())
     private val _comments = MutableStateFlow<Map<String, List<PostComment>>>(emptyMap())
     private val _users = MutableStateFlow<Map<String, CloudUser>>(emptyMap())
     private val _following = MutableStateFlow<Set<String>>(emptySet())
+    private val _followedPlans = MutableStateFlow<Set<String>>(emptySet())
+    private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
+    private val _messages = MutableStateFlow<Map<String, List<DirectMessage>>>(emptyMap())
+    private val _notifications = MutableStateFlow<List<SocialNotification>>(emptyList())
+    private val _blockedUsers = MutableStateFlow<Set<String>>(emptySet())
+    private val _reports = MutableStateFlow<List<Report>>(emptyList())
 
     init {
         seedInitialCommunityData()
     }
 
-    override fun getPosts(filter: FeedFilter, query: String): Flow<List<CommunityPost>> {
-        return _posts.asStateFlow().map { list ->
+    override fun getPosts(
+        filter: FeedFilter, 
+        query: String,
+        userCategories: List<String>,
+        userInterests: List<String>
+    ): Flow<List<CommunityPost>> {
+        return combine(_posts, _blockedUsers, _following) { list, blocked, following ->
+            val visible = list.filter {
+                it.visibility.equals("public", ignoreCase = true) &&
+                    it.author.userId !in blocked
+            }
             val filtered = if (query.isBlank()) {
-                list
+                visible
             } else {
-                list.filter {
+                visible.filter {
                     it.title.contains(query, ignoreCase = true) ||
                         it.description.contains(query, ignoreCase = true) ||
+                        it.category.contains(query, ignoreCase = true) ||
                         it.author.displayName.contains(query, ignoreCase = true) ||
+                        it.author.username.contains(query, ignoreCase = true) ||
                         it.tags.any { tag -> tag.contains(query, ignoreCase = true) }
                 }
             }
             when (filter) {
-                FeedFilter.TRENDING -> filtered.sortedByDescending { it.upvoteCount + it.joinCount * 2 }
-                FeedFilter.RECENT -> filtered.sortedByDescending { it.createdAt }
+                FeedFilter.TRENDING     -> filtered.sortedByDescending { it.upvoteCount + it.joinCount * 2 }
+                FeedFilter.FOLLOWING    -> filtered.filter { it.author.userId in following }.sortedByDescending { it.createdAt }
+                FeedFilter.RECENT       -> filtered.sortedByDescending { it.createdAt }
                 FeedFilter.MOST_DOWNLOADED -> filtered.sortedByDescending { it.joinCount }
+                FeedFilter.FOR_YOU      -> filtered.sortedByDescending { post ->
+                    val tagMatchCount = post.tags.count { it in userInterests }
+                    val categoryBonus = if (post.category in userCategories) 5 else 0
+                    tagMatchCount * 10 + categoryBonus + post.upvoteCount
+                }
             }
         }
     }
@@ -90,7 +167,10 @@ class InMemorySocialRepository(
         planTemplateJson: String,
         durationDays: Int,
         tags: List<String>,
-        category: String
+        category: String,
+        isPaid: Boolean,
+        creditCost: Int,
+        visibility: String
     ): Result<CommunityPost> {
         val newPost = CommunityPost(
             postId = "post_${UUID.randomUUID().toString().take(8)}",
@@ -105,7 +185,10 @@ class InMemorySocialRepository(
             joinCount = 0,
             commentCount = 0,
             userVote = VoteType.UP,
-            createdAt = System.currentTimeMillis()
+            isPaid = isPaid,
+            creditCost = creditCost,
+            createdAt = System.currentTimeMillis(),
+            visibility = visibility
         )
         _posts.value = listOf(newPost) + _posts.value
         return Result.success(newPost)
@@ -195,6 +278,22 @@ class InMemorySocialRepository(
         return Result.success(newComment)
     }
 
+    override suspend fun toggleCommentLike(postId: String, commentId: String): Result<PostComment> {
+        val currentMap = _comments.value.toMutableMap()
+        val postComments = currentMap[postId]?.toMutableList() ?: return Result.failure(IllegalArgumentException("Post not found"))
+        val targetIndex = postComments.indexOfFirst { it.commentId == commentId }
+        if (targetIndex == -1) return Result.failure(IllegalArgumentException("Comment not found"))
+
+        val target = postComments[targetIndex]
+        val newLiked = !target.isLiked
+        val newCount = if (newLiked) target.upvoteCount + 1 else (target.upvoteCount - 1).coerceAtLeast(0)
+        val updated = target.copy(isLiked = newLiked, upvoteCount = newCount)
+        postComments[targetIndex] = updated
+        currentMap[postId] = postComments
+        _comments.value = currentMap
+        return Result.success(updated)
+    }
+
     override suspend fun incrementJoinCount(postId: String): Result<Int> {
         val currentList = _posts.value
         val targetIndex = currentList.indexOfFirst { it.postId == postId }
@@ -251,6 +350,234 @@ class InMemorySocialRepository(
         return Result.success(user)
     }
 
+    override suspend fun deletePost(postId: String, userId: String): Result<Boolean> {
+        val currentList = _posts.value
+        val post = currentList.find { it.postId == postId } ?: return Result.failure(IllegalArgumentException("Post not found"))
+        if (post.author.userId != userId && userId != "system_admin") {
+            return Result.failure(IllegalAccessException("Only author can delete post"))
+        }
+        _posts.value = currentList.filter { it.postId != postId }
+        val author = _users.value[post.author.userId]
+        if (author != null) {
+            _users.value = _users.value + (author.userId to author.copy(publicPlansCount = (author.publicPlansCount - 1).coerceAtLeast(0)))
+        }
+        return Result.success(true)
+    }
+
+    override suspend fun deleteComment(postId: String, commentId: String, userId: String): Result<Boolean> {
+        val currentMap = _comments.value.toMutableMap()
+        val postComments = currentMap[postId]?.toMutableList() ?: return Result.failure(IllegalArgumentException("Post not found"))
+        val target = postComments.find { it.commentId == commentId } ?: return Result.failure(IllegalArgumentException("Comment not found"))
+        if (target.author.userId != userId && userId != "system_admin") {
+            return Result.failure(IllegalAccessException("Only author can delete comment"))
+        }
+        postComments.removeAll { it.commentId == commentId || it.parentCommentId == commentId }
+        currentMap[postId] = postComments
+        _comments.value = currentMap
+
+        val currentPosts = _posts.value.toMutableList()
+        val postIdx = currentPosts.indexOfFirst { it.postId == postId }
+        if (postIdx != -1) {
+            val p = currentPosts[postIdx]
+            currentPosts[postIdx] = p.copy(commentCount = postComments.size)
+            _posts.value = currentPosts
+        }
+        return Result.success(true)
+    }
+
+    override fun getSavedPosts(): Flow<List<CommunityPost>> {
+        return _posts.asStateFlow().map { list -> list.filter { it.isSaved } }
+    }
+
+    override fun getFollowingList(): Flow<Set<String>> {
+        return _following.asStateFlow()
+    }
+
+    override fun search(query: String): Flow<SocialSearchResult> {
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) {
+            return kotlinx.coroutines.flow.flowOf(SocialSearchResult())
+        }
+        return combine(_posts, _users, _blockedUsers) { posts, usersMap, blocked ->
+            val matchingPlans = posts.filter {
+                it.visibility.equals("public", ignoreCase = true) &&
+                    it.author.userId !in blocked &&
+                    (it.title.contains(cleanQuery, ignoreCase = true) ||
+                        it.description.contains(cleanQuery, ignoreCase = true) ||
+                        it.category.contains(cleanQuery, ignoreCase = true) ||
+                        it.author.displayName.contains(cleanQuery, ignoreCase = true) ||
+                        it.author.username.contains(cleanQuery, ignoreCase = true) ||
+                        it.tags.any { tag -> tag.contains(cleanQuery, ignoreCase = true) })
+            }
+            val matchingCreators = usersMap.values.filter {
+                it.userId !in blocked &&
+                    (it.username.contains(cleanQuery, ignoreCase = true) ||
+                        it.displayName.contains(cleanQuery, ignoreCase = true) ||
+                        it.bio.contains(cleanQuery, ignoreCase = true))
+            }
+            SocialSearchResult(plans = matchingPlans, creators = matchingCreators)
+        }
+    }
+
+    override fun searchCreators(query: String): Flow<List<CloudUser>> {
+        val cleanQuery = query.trim()
+        return combine(_users, _blockedUsers) { usersMap, blocked ->
+            if (cleanQuery.isBlank()) emptyList()
+            else usersMap.values.filter {
+                it.userId !in blocked &&
+                    (it.username.contains(cleanQuery, ignoreCase = true) ||
+                        it.displayName.contains(cleanQuery, ignoreCase = true) ||
+                        it.bio.contains(cleanQuery, ignoreCase = true))
+            }
+        }
+    }
+
+    override suspend fun reportContent(
+        targetId: String,
+        targetType: String,
+        reason: String,
+        reporterUserId: String
+    ): Result<Boolean> {
+        val report = Report(
+            reportId = "rep_${UUID.randomUUID().toString().take(8)}",
+            targetId = targetId,
+            targetType = targetType,
+            reason = reason,
+            reporterUserId = reporterUserId,
+            createdAt = System.currentTimeMillis()
+        )
+        _reports.value = _reports.value + report
+        return Result.success(true)
+    }
+
+    override suspend fun blockUser(targetUserId: String, currentUserId: String): Result<Boolean> {
+        _blockedUsers.value = _blockedUsers.value + targetUserId
+        if (_following.value.contains(targetUserId)) {
+            unfollowCreator(targetUserId)
+        }
+        return Result.success(true)
+    }
+
+    override suspend fun unblockUser(targetUserId: String, currentUserId: String): Result<Boolean> {
+        _blockedUsers.value = _blockedUsers.value - targetUserId
+        return Result.success(true)
+    }
+
+    override fun getBlockedUsers(currentUserId: String): Flow<Set<String>> {
+        return _blockedUsers.asStateFlow()
+    }
+
+    override suspend fun usePlan(planId: String, userId: String): Result<Int> {
+        return incrementJoinCount(planId)
+    }
+
+    override suspend fun toggleFollowPlan(planId: String, userId: String): Result<Boolean> {
+        val current = _followedPlans.value
+        val isFollowed = current.contains(planId)
+        val newSet = if (isFollowed) current - planId else current + planId
+        _followedPlans.value = newSet
+        return Result.success(!isFollowed)
+    }
+
+    override fun isFollowingPlan(planId: String, userId: String): Flow<Boolean> {
+        return _followedPlans.asStateFlow().map { it.contains(planId) }
+    }
+
+    override fun getConversations(userId: String): Flow<List<Conversation>> {
+        return _conversations.asStateFlow()
+    }
+
+    override suspend fun getOrCreateConversation(currentUserId: String, otherUserId: String): Result<Conversation> {
+        val existing = _conversations.value.find { it.participant?.id == otherUserId }
+        if (existing != null) return Result.success(existing)
+
+        val otherUser = _users.value[otherUserId]
+        val participantProfile = UserProfile(
+            id = otherUserId,
+            username = otherUser?.username ?: "user",
+            displayName = otherUser?.displayName ?: "User",
+            avatarUrl = otherUser?.avatarUrl,
+            bio = otherUser?.bio ?: "",
+            isCreator = otherUser?.isCreator ?: false
+        )
+        val newConv = Conversation(
+            id = "conv_${UUID.randomUUID().toString().take(8)}",
+            participant = participantProfile,
+            unreadCount = 0
+        )
+        _conversations.value = listOf(newConv) + _conversations.value
+        return Result.success(newConv)
+    }
+
+    override fun getMessages(conversationId: String): Flow<List<DirectMessage>> {
+        return _messages.asStateFlow().map { it[conversationId] ?: emptyList() }
+    }
+
+    override suspend fun sendMessage(conversationId: String, senderId: String, content: String): Result<DirectMessage> {
+        val newMsg = DirectMessage(
+            id = "msg_${UUID.randomUUID().toString().take(8)}",
+            conversationId = conversationId,
+            senderId = senderId,
+            content = content,
+            createdAt = java.time.Instant.now().toString()
+        )
+        val map = _messages.value.toMutableMap()
+        val list = (map[conversationId] ?: emptyList()) + newMsg
+        map[conversationId] = list
+        _messages.value = map
+
+        // Update last message in conversation
+        val convs = _conversations.value.toMutableList()
+        val idx = convs.indexOfFirst { it.id == conversationId }
+        if (idx != -1) {
+            convs[idx] = convs[idx].copy(lastMessage = newMsg)
+            _conversations.value = convs
+        }
+        return Result.success(newMsg)
+    }
+
+    override fun getNotifications(userId: String): Flow<List<SocialNotification>> {
+        return _notifications.asStateFlow().map { list -> list.filter { it.recipientId == userId } }
+    }
+
+    override suspend fun markNotificationAsRead(notificationId: String): Result<Boolean> {
+        val list = _notifications.value.map {
+            if (it.id == notificationId) it.copy(isRead = true) else it
+        }
+        _notifications.value = list
+        return Result.success(true)
+    }
+
+    override suspend fun markAllNotificationsAsRead(userId: String): Result<Boolean> {
+        val list = _notifications.value.map {
+            if (it.recipientId == userId) it.copy(isRead = true) else it
+        }
+        _notifications.value = list
+        return Result.success(true)
+    }
+
+    override fun checkForPlanUpdate(sourcePlanId: String, currentLocalVersion: String): Flow<PlanVersionUpdate?> {
+        return kotlinx.coroutines.flow.flowOf(null)
+    }
+
+    override fun getPrivacySettings(userId: String): Flow<PrivacySettings?> {
+        return kotlinx.coroutines.flow.flowOf(PrivacySettings(userId = userId))
+    }
+
+    override fun canMessageUser(targetUserId: String): Flow<Boolean> {
+        return _blockedUsers.asStateFlow().map { blocked ->
+            targetUserId !in blocked
+        }
+    }
+
+    override fun getViewerRelationship(targetUserId: String): Flow<RelationshipStatus> {
+        return combine(_following, _blockedUsers) { following, blocked ->
+            if (targetUserId in blocked) RelationshipStatus.BLOCKED
+            else if (targetUserId in following) RelationshipStatus.FOLLOWING
+            else RelationshipStatus.STRANGER
+        }
+    }
+
     private fun buildCommentTree(flatList: List<PostComment>): List<PostComment> {
         val rootComments = flatList.filter { it.parentCommentId == null }
         val repliesByParent = flatList.filter { it.parentCommentId != null }.groupBy { it.parentCommentId }
@@ -297,13 +624,73 @@ class InMemorySocialRepository(
             totalMembersJoined = 2150
         )
 
+        val alex = CloudUser(
+            userId = "user_alex",
+            username = "alex",
+            displayName = "Alex Rivera",
+            avatarUrl = null,
+            isCreator = true,
+            bio = "Senior Python engineer & educator. Building practical coding curriculums.",
+            followerCount = 4200,
+            followingCount = 120,
+            publicPlansCount = 1,
+            totalMembersJoined = 8900
+        )
+
+        val rahul = CloudUser(
+            userId = "user_rahul",
+            username = "rahul",
+            displayName = "Rahul Sharma",
+            avatarUrl = null,
+            isCreator = true,
+            bio = "Tech mentor, ex-FAANG interviewer. Helping developers ace technical interviews.",
+            followerCount = 6100,
+            followingCount = 85,
+            publicPlansCount = 1,
+            totalMembersJoined = 15300
+        )
+
         _users.value = mapOf(
-            sarah.userId to sarah,
-            cal.userId to cal,
-            zenMind.userId to zenMind
+            sarah.userId to sarah.copy(followingCount = 45, publicPlansCount = 2),
+            cal.userId to cal.copy(followingCount = 12, publicPlansCount = 2),
+            zenMind.userId to zenMind.copy(followingCount = 67, publicPlansCount = 1),
+            alex.userId to alex,
+            rahul.userId to rahul
         )
 
         // Seed templates
+        val alexTemplate = PlanTemplateDto(
+            title = "Python in 30 Days",
+            description = "Master core Python syntax, OOP, modules, and build 4 real-world projects from scratch in 30 days.",
+            targetDurationDays = 30,
+            defaultTaskDurationDays = 1,
+            tags = listOf("python", "coding", "programming", "beginners"),
+            category = "Technology",
+            author = AuthorDto(alex.userId, alex.displayName, alex.avatarUrl, alex.isCreator),
+            tasks = listOf(
+                TaskTemplateDto("Variables, Loops & Control Flow", "1,2,3,4,5,6,7", 1, listOf("Syntax review", "Writing condition logic", "10 practice problems")),
+                TaskTemplateDto("Functions & Modules", "1,2,3,4,5,6,7", 1, listOf("Lambda functions", "Importing packages", "Building a math helper module")),
+                TaskTemplateDto("Data Structures: Lists, Dicts & Sets", "1,2,3,4,5,6,7", 1, listOf("List comprehensions", "Dictionary lookups", "Time complexity analysis")),
+                TaskTemplateDto("Building a CLI Weather Application", "1,2,3,4,5,6,7", 1, listOf("Fetch JSON from API", "Parse responses", "Terminal UI formatting"))
+            )
+        )
+
+        val rahulTemplate = PlanTemplateDto(
+            title = "Python Interview Preparation",
+            description = "Comprehensive Python DSA and coding interview roadmap: sliding window, graphs, dynamic programming, and mock interviews.",
+            targetDurationDays = 21,
+            defaultTaskDurationDays = 1,
+            tags = listOf("python", "interview", "leetcode", "algorithms"),
+            category = "Career",
+            author = AuthorDto(rahul.userId, rahul.displayName, rahul.avatarUrl, rahul.isCreator),
+            tasks = listOf(
+                TaskTemplateDto("Two Pointers & Sliding Window", "1,2,3,4,5", 1, listOf("Trapping Rain Water", "Longest Substring Without Repeating Characters")),
+                TaskTemplateDto("Trees & Graph Traversal", "1,2,3,4,5", 1, listOf("BFS/DFS implementations", "Lowest Common Ancestor", "Cycle Detection")),
+                TaskTemplateDto("Dynamic Programming Fundamentals", "1,2,3,4,5", 1, listOf("Memoization vs Tabulation", "0/1 Knapsack", "Coin Change")),
+                TaskTemplateDto("Mock Technical Interview & Retrospective", "6", 1, listOf("45-min timed coding", "Big-O verbal walkthrough", "Self-critique log"))
+            )
+        )
+
         val sarahTemplate = PlanTemplateDto(
             title = "30-Day Morning Routine",
             description = "Wake up at 5AM, hydrate, meditate for 10 minutes, and write your daily focus goals before touching your phone.",
@@ -457,7 +844,39 @@ class InMemorySocialRepository(
             createdAt = System.currentTimeMillis() - 86400000L * 6
         )
 
-        _posts.value = listOf(post1, post2, post3, post4, post5)
+        val postAlex = CommunityPost(
+            postId = "post_alex_01",
+            author = alex,
+            title = alexTemplate.title,
+            description = alexTemplate.description,
+            planTemplateJson = gson.toJson(alexTemplate),
+            durationDays = alexTemplate.targetDurationDays,
+            tags = alexTemplate.tags,
+            category = alexTemplate.category,
+            upvoteCount = 485,
+            joinCount = 2930,
+            commentCount = 1,
+            userVote = null,
+            createdAt = System.currentTimeMillis() - 86400000L * 1
+        )
+
+        val postRahul = CommunityPost(
+            postId = "post_rahul_01",
+            author = rahul,
+            title = rahulTemplate.title,
+            description = rahulTemplate.description,
+            planTemplateJson = gson.toJson(rahulTemplate),
+            durationDays = rahulTemplate.targetDurationDays,
+            tags = rahulTemplate.tags,
+            category = rahulTemplate.category,
+            upvoteCount = 612,
+            joinCount = 4120,
+            commentCount = 0,
+            userVote = null,
+            createdAt = System.currentTimeMillis() - 86400000L * 2
+        )
+
+        _posts.value = listOf(postAlex, postRahul, post1, post2, post3, post4, post5)
 
         // Seed initial comments
         val comment1 = PostComment(
@@ -479,6 +898,26 @@ class InMemorySocialRepository(
             createdAt = System.currentTimeMillis() - 3600000L * 10
         )
 
+        val reply2 = PostComment(
+            commentId = "comm_1_reply_2",
+            postId = post1.postId,
+            author = zenMind,
+            content = "Do you take the electrolytes before or after the 10 min meditation?",
+            parentCommentId = "comm_1",
+            upvoteCount = 5,
+            createdAt = System.currentTimeMillis() - 3600000L * 8
+        )
+
+        val reply3 = PostComment(
+            commentId = "comm_1_reply_3",
+            postId = post1.postId,
+            author = cal,
+            content = "Right when waking up, before meditation. Helps prime the nervous system for focus.",
+            parentCommentId = "comm_1",
+            upvoteCount = 12,
+            createdAt = System.currentTimeMillis() - 3600000L * 6
+        )
+
         val comment2 = PostComment(
             commentId = "comm_2",
             postId = post1.postId,
@@ -489,7 +928,7 @@ class InMemorySocialRepository(
         )
 
         _comments.value = mapOf(
-            post1.postId to listOf(comment1, reply1, comment2)
+            post1.postId to listOf(comment1, reply1, reply2, reply3, comment2)
         )
     }
 }

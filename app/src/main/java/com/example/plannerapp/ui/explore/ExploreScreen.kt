@@ -81,7 +81,9 @@ fun ExploreScreen(
         ) {
             FeedFilter.entries.forEach { filter ->
                 val label = when (filter) {
+                    FeedFilter.FOR_YOU -> "For You"
                     FeedFilter.TRENDING -> "Trending"
+                    FeedFilter.FOLLOWING -> "Following"
                     FeedFilter.RECENT -> "Recent"
                     FeedFilter.MOST_DOWNLOADED -> "Top Joined"
                 }
