@@ -26,7 +26,7 @@ import com.example.plannerapp.sharing.SharingDao
         SharedPlanEntity::class
     ],
     version = 8,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class PlannerDatabase : RoomDatabase() {
 
