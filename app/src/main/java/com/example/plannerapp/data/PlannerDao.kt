@@ -196,6 +196,40 @@ interface PlannerDao {
     @Query("UPDATE plans SET syncStatus = 'SYNCED' WHERE planId IN (:ids)")
     suspend fun markPlansSynced(ids: List<Long>)
 
+    // Write-back remote UUID after a successful cloud upsert
+    @Query("UPDATE plans SET remoteId = :remoteId, syncStatus = 'SYNCED', updatedAt = :updatedAt WHERE planId = :planId")
+    suspend fun setPlanRemoteId(planId: Long, remoteId: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE task_templates SET remoteId = :remoteId, syncStatus = 'SYNCED' WHERE templateId = :templateId")
+    suspend fun setTemplateRemoteId(templateId: Long, remoteId: String)
+
+    @Query("UPDATE daily_checkins SET remoteId = :remoteId, syncStatus = 'SYNCED' WHERE checkinId = :checkinId")
+    suspend fun setCheckinRemoteId(checkinId: Long, remoteId: String)
+
+    // Soft-delete: mark DELETED before the worker physically removes the remote row
+    @Query("UPDATE plans SET syncStatus = 'DELETED', updatedAt = :updatedAt WHERE planId = :planId")
+    suspend fun markPlanDeleted(planId: Long, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE task_templates SET syncStatus = 'DELETED' WHERE templateId = :templateId")
+    suspend fun markTemplateDeleted(templateId: Long)
+
+    // ── Sync Outbox ─────────────────────────────────
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOutboxEvent(event: SyncOutboxEntity): Long
+
+    @Query("SELECT * FROM sync_outbox ORDER BY createdAt ASC LIMIT :limit")
+    suspend fun peekOutbox(limit: Int = 50): List<SyncOutboxEntity>
+
+    @Query("DELETE FROM sync_outbox WHERE outboxId = :outboxId")
+    suspend fun deleteOutboxEvent(outboxId: Long)
+
+    @Query("UPDATE sync_outbox SET retryCount = retryCount + 1 WHERE outboxId = :outboxId")
+    suspend fun incrementOutboxRetry(outboxId: Long)
+
+    @Query("DELETE FROM sync_outbox WHERE retryCount >= :maxRetries")
+    suspend fun pruneExhaustedOutboxEvents(maxRetries: Int = 5)
+
+
     // ── Handshake (Guest → Auth Migration) ──────────
     @Query("UPDATE plans SET userId = :newUserId WHERE userId = :oldUserId")
     suspend fun migrateUserPlans(oldUserId: Long, newUserId: Long)

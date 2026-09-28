@@ -114,10 +114,13 @@ class PlannerRepository(private val dao: PlannerDao) {
     }
 
     suspend fun deletePlan(planId: Long) {
+        // Soft-delete first so sync worker can queue a DELETE outbox event while remoteId is still readable
+        dao.markPlanDeleted(planId)
         dao.deletePlan(planId)
     }
 
     suspend fun deletePlans(planIds: List<Long>) {
+        planIds.forEach { dao.markPlanDeleted(it) }
         dao.deletePlans(planIds)
     }
 
@@ -126,6 +129,8 @@ class PlannerRepository(private val dao: PlannerDao) {
     }
 
     suspend fun deleteTask(templateId: Long) {
+        // Soft-delete task first
+        dao.markTemplateDeleted(templateId)
         dao.deleteCheckinsForTemplate(templateId)
         dao.deleteTaskTemplate(templateId)
     }

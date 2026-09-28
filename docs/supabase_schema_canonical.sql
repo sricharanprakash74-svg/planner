@@ -915,3 +915,75 @@ BEGIN
         END;
     END IF;
 END $$;
+
+-- ==============================================================================
+-- PRIVATE PLANNER DATA — Cloud Backup Tables
+-- These tables store each user's private plans, task templates, and daily
+-- check-ins in the cloud. All rows are protected by RLS: only the owner can
+-- read/write their own data. The Android app syncs via SupabaseSyncWorker.
+-- ==============================================================================
+
+-- 22. PRIVATE USER PLANS
+CREATE TABLE IF NOT EXISTS public.user_plans (
+    id                          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    owner_id                    UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    local_id                    BIGINT,
+    heading                     TEXT NOT NULL,
+    description                 TEXT NOT NULL DEFAULT '',
+    start_date                  DATE NOT NULL,
+    end_date                    DATE NOT NULL,
+    is_public                   BOOLEAN NOT NULL DEFAULT FALSE,
+    default_task_duration_days  INT NOT NULL DEFAULT 1,
+    reminder_enabled            BOOLEAN NOT NULL DEFAULT FALSE,
+    reminder_time               TEXT DEFAULT '08:00',
+    created_at_ms               BIGINT,
+    updated_at_ms               BIGINT,
+    synced_at                   TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_user_plans_owner ON public.user_plans(owner_id);
+CREATE INDEX IF NOT EXISTS idx_user_plans_local_id ON public.user_plans(local_id);
+ALTER TABLE public.user_plans ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_plans_owner_all ON public.user_plans;
+CREATE POLICY user_plans_owner_all ON public.user_plans
+    FOR ALL USING (owner_id = auth.uid()) WITH CHECK (owner_id = auth.uid());
+
+-- 23. PRIVATE TASK TEMPLATES
+CREATE TABLE IF NOT EXISTS public.user_task_templates (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    owner_id            UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    plan_remote_id      UUID REFERENCES public.user_plans(id) ON DELETE CASCADE,
+    local_id            BIGINT,
+    task_description    TEXT NOT NULL,
+    selected_days       TEXT NOT NULL,
+    duration_days       INT NOT NULL DEFAULT 1,
+    subtasks            TEXT NOT NULL DEFAULT '[]',
+    created_at_ms       BIGINT,
+    synced_at           TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_user_task_templates_owner ON public.user_task_templates(owner_id);
+CREATE INDEX IF NOT EXISTS idx_user_task_templates_plan ON public.user_task_templates(plan_remote_id);
+ALTER TABLE public.user_task_templates ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_task_templates_owner_all ON public.user_task_templates;
+CREATE POLICY user_task_templates_owner_all ON public.user_task_templates
+    FOR ALL USING (owner_id = auth.uid()) WITH CHECK (owner_id = auth.uid());
+
+-- 24. PRIVATE DAILY CHECK-INS
+CREATE TABLE IF NOT EXISTS public.user_daily_checkins (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    owner_id            UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    template_remote_id  UUID REFERENCES public.user_task_templates(id) ON DELETE CASCADE,
+    local_id            BIGINT,
+    exact_date          DATE NOT NULL,
+    is_completed        BOOLEAN NOT NULL DEFAULT FALSE,
+    completed_subtasks  TEXT NOT NULL DEFAULT '[]',
+    completed_at_ms     BIGINT,
+    timezone_offset     TEXT NOT NULL DEFAULT '',
+    synced_at           TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_user_daily_checkins_owner ON public.user_daily_checkins(owner_id);
+CREATE INDEX IF NOT EXISTS idx_user_daily_checkins_template ON public.user_daily_checkins(template_remote_id);
+CREATE INDEX IF NOT EXISTS idx_user_daily_checkins_date ON public.user_daily_checkins(exact_date);
+ALTER TABLE public.user_daily_checkins ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_daily_checkins_owner_all ON public.user_daily_checkins;
+CREATE POLICY user_daily_checkins_owner_all ON public.user_daily_checkins
+    FOR ALL USING (owner_id = auth.uid()) WITH CHECK (owner_id = auth.uid());

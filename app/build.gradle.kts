@@ -160,6 +160,9 @@ dependencies {
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.kotlinx.coroutines.android)
 
+  // WorkManager (background sync)
+  implementation("androidx.work:work-runtime-ktx:2.9.1")
+
   // OkHttp & JSON
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
   implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")

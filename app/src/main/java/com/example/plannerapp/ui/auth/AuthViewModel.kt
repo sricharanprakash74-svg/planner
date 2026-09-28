@@ -14,10 +14,12 @@ import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 data class AuthUiState(
@@ -352,6 +354,69 @@ class AuthViewModel(
             ?.remove("draft_level")
             ?.remove("current_step")
             ?.apply()
+
+        // Restore private plans from the cloud (runs on re-install / new device)
+        if (SupabaseConfig.isConfigured && appContext != null) {
+            try {
+                restoreCloudPlans(cloudUid, targetUserId, userDao)
+            } catch (_: Exception) {
+                // Non-fatal: local state is intact; sync will catch up next online session
+            }
+            // Drain any locally-queued outbox events now that we are authenticated
+            com.example.plannerapp.sync.SupabaseSyncWorker.enqueue(appContext)
+        }
+    }
+
+    /**
+     * Downloads all [user_plans] rows owned by [cloudUid] from Supabase and
+     * inserts missing ones into the local Room database.
+     *
+     * Only plans that have no matching [remoteId] in Room are inserted to avoid
+     * duplicates. After insertion the [remoteId] is set immediately so subsequent
+     * syncs skip the row.
+     */
+    private suspend fun restoreCloudPlans(
+        cloudUid: String,
+        localUserId: Long,
+        userDao: UserDao
+    ) {
+        val remotePlans = supabase.postgrest.from("user_plans").select {
+            filter { eq("owner_id", cloudUid) }
+        }.decodeList<kotlinx.serialization.json.JsonObject>()
+
+        if (remotePlans.isEmpty()) return
+
+        val db = com.example.plannerapp.data.PlannerDatabase.getDatabase(
+            appContext ?: return
+        )
+        val dao = db.plannerDao()
+
+        for (remotePlan in remotePlans) {
+            val remoteId = remotePlan["id"]?.jsonPrimitive?.content ?: continue
+            val heading  = remotePlan["heading"]?.jsonPrimitive?.content ?: continue
+            val startDate = remotePlan["start_date"]?.jsonPrimitive?.content ?: continue
+            val endDate   = remotePlan["end_date"]?.jsonPrimitive?.content ?: startDate
+            val description = remotePlan["description"]?.jsonPrimitive?.content ?: ""
+            val isPublic = remotePlan["is_public"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
+
+            // Skip if already present locally
+            val allLocalPlans = dao.getPlansForUser(localUserId)
+            val alreadyExists = allLocalPlans.first()
+                .any { it.remoteId == remoteId }
+            if (alreadyExists) continue
+
+            val newPlan = com.example.plannerapp.data.PlanEntity(
+                userId      = localUserId,
+                remoteId    = remoteId,
+                heading     = heading,
+                description = description,
+                startDate   = startDate,
+                endDate     = endDate,
+                isPublic    = isPublic,
+                syncStatus  = "SYNCED"
+            )
+            dao.insertPlan(newPlan)
+        }
     }
 }
 

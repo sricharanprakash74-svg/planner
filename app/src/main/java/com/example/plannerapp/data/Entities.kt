@@ -35,11 +35,12 @@ data class UserEntity(
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("userId")]
+    indices = [Index("userId"), Index("remoteId")]
 )
 data class PlanEntity(
     @PrimaryKey(autoGenerate = true) val planId: Long = 0,
     val userId: Long = 0,
+    val remoteId: String? = null,          // Supabase UUID — null until first cloud sync
     val heading: String,
     val description: String = "",
     val startDate: String,                 // "YYYY-MM-DD"
@@ -50,7 +51,7 @@ data class PlanEntity(
     val sourcePlanId: Long? = null,        // Tracks cloned-from plan (immutable clone rule)
     val upvoteCount: Int = 0,              // Cached for feed display
     val downloadCount: Int = 0,            // Cached for feed display
-    val syncStatus: String = "LOCAL",      // LOCAL | PENDING | SYNCED
+    val syncStatus: String = "LOCAL",      // LOCAL | PENDING | SYNCED | DELETED
     val reminderEnabled: Boolean = false,  // Reminder notification flag
     val reminderTime: String? = "08:00",   // "HH:mm" e.g. "08:00"
     val createdAt: Long = System.currentTimeMillis(),
@@ -68,11 +69,12 @@ data class PlanEntity(
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("planId")]
+    indices = [Index("planId"), Index("remoteId")]
 )
 data class TaskTemplateEntity(
     @PrimaryKey(autoGenerate = true) val templateId: Long = 0,
     val planId: Long,
+    val remoteId: String? = null,          // Supabase UUID
     val taskDescription: String,
     val selectedDays: String,              // e.g., "1,3,5" for Mon/Wed/Fri
     val durationDays: Int = 1,             // Task duration in days
@@ -92,17 +94,18 @@ data class TaskTemplateEntity(
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("templateId"), Index("exactDate")]
+    indices = [Index("templateId"), Index("exactDate"), Index("remoteId")]
 )
 data class DailyCheckinEntity(
     @PrimaryKey(autoGenerate = true) val checkinId: Long = 0,
     val templateId: Long,
+    val remoteId: String? = null,          // Supabase UUID
     val exactDate: String,                 // "YYYY-MM-DD"
     val isCompleted: Boolean = false,
     val completedSubtasks: String = "[]",  // JSON string of List<Boolean>
     val completedAt: Long? = null,         // Epoch millis when completed
     val timezoneOffset: String = "",       // e.g., "+05:30"
-    val syncStatus: String = "LOCAL"       // LOCAL | PENDING | SYNCED
+    val syncStatus: String = "LOCAL"       // LOCAL | PENDING | SYNCED | DELETED
 )
 
 // ── Badge (Gamification) ────────────────────
@@ -211,5 +214,46 @@ data class JoinedCommunityEntity(
     val communityTitle: String,
     val creatorName: String,
     val joinedAt: Long = System.currentTimeMillis()
+)
+
+// ── Sync Outbox (Offline-first mutation queue) ───────
+/**
+ * Each row is a cloud mutation that has not yet been delivered to Supabase.
+ * The SupabaseSyncWorker drains this table in FIFO order whenever network is
+ * available. Operations are idempotent by design (upserts carry the full row;
+ * deletes are no-ops if the remote row is already gone).
+ */
+@Entity(
+    tableName = "sync_outbox",
+    indices = [Index("entityType"), Index("createdAt")]
+)
+data class SyncOutboxEntity(
+    @PrimaryKey(autoGenerate = true) val outboxId: Long = 0,
+    /**
+     * Discriminator: "PLAN" | "TEMPLATE" | "CHECKIN"
+     */
+    val entityType: String,
+    /**
+     * Local Room primary key of the mutated row.
+     */
+    val localId: Long,
+    /**
+     * Supabase UUID of the row. NULL on first INSERT (assigned by the worker
+     * after the remote upsert succeeds and remoteId is written back to Room).
+     */
+    val remoteId: String? = null,
+    /**
+     * "UPSERT" | "DELETE"
+     */
+    val operation: String,
+    /**
+     * Full JSON payload to send to Supabase (null for DELETE operations).
+     */
+    val payloadJson: String? = null,
+    /**
+     * Retry counter. Worker increments this on transient failure.
+     */
+    val retryCount: Int = 0,
+    val createdAt: Long = System.currentTimeMillis()
 )
 

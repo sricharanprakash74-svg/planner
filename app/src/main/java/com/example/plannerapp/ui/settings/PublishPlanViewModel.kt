@@ -67,10 +67,15 @@ class PublishPlanViewModel(
                 val templateDto = exporter.exportPlan(plan.copy(heading = title, description = description), templates, user, tags, category)
                 val templateJson = Gson().toJson(templateDto)
 
-                val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id ?: user.cloudUserId ?: user.userId.toString()
+                val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id
+                    ?: user.cloudUserId
+                if (cloudUid.isNullOrBlank()) {
+                    _publishStatus.value = PublishStatus.Error("Please sign in to publish plans to the online community.")
+                    return@launch
+                }
                 val cloudUser = CloudUser(
                     userId = cloudUid,
-                    username = user.displayName.lowercase().replace(" ", "_"),
+                    username = user.username ?: user.displayName.lowercase().replace(" ", "_"),
                     displayName = user.displayName,
                     avatarUrl = user.avatarUrl,
                     isCreator = user.isCreator,

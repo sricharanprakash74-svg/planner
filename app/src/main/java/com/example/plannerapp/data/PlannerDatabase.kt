@@ -35,9 +35,10 @@ import com.example.plannerapp.sharing.SharingDao
         CreatorProfileEntity::class,
         PlanVersionEntity::class,
         PlanEntitlementEntity::class,
-        CreatorLedgerEntity::class
+        CreatorLedgerEntity::class,
+        SyncOutboxEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = true
 )
 abstract class PlannerDatabase : RoomDatabase() {
@@ -131,6 +132,36 @@ abstract class PlannerDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_11_12 = object : androidx.room.migration.Migration(11, 12) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // 1. Add remoteId (Supabase UUID) to core planner tables
+                db.execSQL("ALTER TABLE plans ADD COLUMN remoteId TEXT DEFAULT NULL")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_plans_remoteId ON plans (remoteId)")
+
+                db.execSQL("ALTER TABLE task_templates ADD COLUMN remoteId TEXT DEFAULT NULL")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_task_templates_remoteId ON task_templates (remoteId)")
+
+                db.execSQL("ALTER TABLE daily_checkins ADD COLUMN remoteId TEXT DEFAULT NULL")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_daily_checkins_remoteId ON daily_checkins (remoteId)")
+
+                // 2. Create durable sync outbox table
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS sync_outbox (
+                        outboxId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        entityType TEXT NOT NULL,
+                        localId INTEGER NOT NULL,
+                        remoteId TEXT,
+                        operation TEXT NOT NULL,
+                        payloadJson TEXT,
+                        retryCount INTEGER NOT NULL DEFAULT 0,
+                        createdAt INTEGER NOT NULL
+                    )"""
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_sync_outbox_entityType ON sync_outbox (entityType)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_sync_outbox_createdAt ON sync_outbox (createdAt)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: PlannerDatabase? = null
 
@@ -141,7 +172,7 @@ abstract class PlannerDatabase : RoomDatabase() {
                     PlannerDatabase::class.java,
                     "planner_database"
                 )
-                .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                 .build()
                 INSTANCE = instance
                 instance

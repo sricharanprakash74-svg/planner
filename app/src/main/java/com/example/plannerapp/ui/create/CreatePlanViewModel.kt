@@ -10,6 +10,8 @@ import com.example.plannerapp.data.PlannerRepository
 import com.example.plannerapp.data.TaskTemplateEntity
 import com.example.plannerapp.data.UserDao
 import com.example.plannerapp.notifications.ReminderScheduler
+import com.example.plannerapp.sync.SyncOutboxRepository
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import com.example.plannerapp.data.social.CloudUser
@@ -24,7 +26,8 @@ class CreatePlanViewModel(
     private val repository: PlannerRepository,
     private val userDao: UserDao,
     private val appContext: Context,
-    private val socialRepository: SocialRepository? = null
+    private val socialRepository: SocialRepository? = null,
+    private val syncOutbox: SyncOutboxRepository? = null
 ) : ViewModel() {
 
     fun createNewPlan(
@@ -84,46 +87,66 @@ class CreatePlanViewModel(
                 // 3. Save via Repository
                 val newPlanId = repository.createFullPlan(plan, templatesWithCheckins)
 
-                // 4. If public, publish to SocialRepository
-                if (isPublic && socialRepository != null) {
-                    val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id ?: user.cloudUserId ?: user.userId.toString()
-                    val author = CloudUser(
-                        userId = cloudUid,
-                        username = user.displayName.replace(" ", "_").lowercase(),
-                        displayName = user.displayName,
-                        avatarUrl = user.avatarUrl,
-                        isCreator = user.isCreator
-                    )
-                    val templateDto = PlanTemplateDto(
-                        title = name,
-                        description = description,
-                        targetDurationDays = totalDays + 1,
-                        defaultTaskDurationDays = 1,
-                        tags = emptyList(),
-                        category = "General",
-                        author = AuthorDto(author.userId, author.displayName, author.avatarUrl, author.isCreator),
-                        tasks = tasksInput.map { (taskDesc, selectedDays) ->
-                            TaskTemplateDto(
-                                taskDescription = taskDesc,
-                                selectedDays = selectedDays.joinToString(","),
-                                durationDays = 1,
-                                subtasks = emptyList()
-                            )
+                // 4. Enqueue to sync outbox (cloud backup)
+                val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id
+                    ?: user.cloudUserId
+                if (cloudUid != null && syncOutbox != null) {
+                    val savedPlan = repository.getPlansForUser(user.userId)
+                        .first()
+                        .find { it.planId == newPlanId }
+                    if (savedPlan != null) {
+                        syncOutbox.enqueuePlanUpsert(savedPlan, cloudUid)
+                        val templates = repository.getTaskTemplatesForPlan(newPlanId)
+                        templates.forEach { tmpl ->
+                            syncOutbox.enqueueTemplateUpsert(tmpl, null, cloudUid)
                         }
-                    )
-                    socialRepository.createPost(
-                        author = author,
-                        title = name,
-                        description = description,
-                        planTemplateJson = Gson().toJson(templateDto),
-                        durationDays = totalDays + 1,
-                        tags = emptyList(),
-                        category = "General",
-                        visibility = "public"
-                    )
+                    }
                 }
 
-                // 5. Schedule reminder alarm if enabled
+                // 5. If public, publish to SocialRepository
+                if (isPublic && socialRepository != null) {
+                    // Require authenticated cloud user — do NOT fall back to local integer ID
+                    val publishUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id
+                        ?: user.cloudUserId
+                    if (publishUid != null) {
+                        val author = CloudUser(
+                            userId = publishUid,
+                            username = user.username ?: user.displayName.replace(" ", "_").lowercase(),
+                            displayName = user.displayName,
+                            avatarUrl = user.avatarUrl,
+                            isCreator = user.isCreator
+                        )
+                        val templateDto = PlanTemplateDto(
+                            title = name,
+                            description = description,
+                            targetDurationDays = totalDays + 1,
+                            defaultTaskDurationDays = 1,
+                            tags = emptyList(),
+                            category = "General",
+                            author = AuthorDto(author.userId, author.displayName, author.avatarUrl, author.isCreator),
+                            tasks = tasksInput.map { (taskDesc, selectedDays) ->
+                                TaskTemplateDto(
+                                    taskDescription = taskDesc,
+                                    selectedDays = selectedDays.joinToString(","),
+                                    durationDays = 1,
+                                    subtasks = emptyList()
+                                )
+                            }
+                        )
+                        socialRepository.createPost(
+                            author = author,
+                            title = name,
+                            description = description,
+                            planTemplateJson = Gson().toJson(templateDto),
+                            durationDays = totalDays + 1,
+                            tags = emptyList(),
+                            category = "General",
+                            visibility = "public"
+                        )
+                    }
+                }
+
+                // 6. Schedule reminder alarm if enabled
                 if (reminderEnabled && !reminderTime.isNullOrBlank()) {
                     ReminderScheduler.schedule(appContext, newPlanId, name, reminderTime)
                 }
@@ -138,12 +161,13 @@ class CreatePlanViewModelFactory(
     private val repository: PlannerRepository,
     private val userDao: UserDao,
     private val appContext: Context,
-    private val socialRepository: SocialRepository? = null
+    private val socialRepository: SocialRepository? = null,
+    private val syncOutbox: SyncOutboxRepository? = null
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(CreatePlanViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return CreatePlanViewModel(repository, userDao, appContext, socialRepository) as T
+            return CreatePlanViewModel(repository, userDao, appContext, socialRepository, syncOutbox) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
