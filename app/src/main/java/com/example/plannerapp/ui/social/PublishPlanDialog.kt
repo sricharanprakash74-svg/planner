@@ -43,6 +43,8 @@ import com.example.plannerapp.data.social.SocialRepository
 import com.example.plannerapp.data.template.PlanExporter
 import com.google.gson.Gson
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -91,6 +93,25 @@ fun PublishPlanDialog(
     val activeUserFlow by userDao.getActiveUser().collectAsState(initial = null)
     val activeUser = activeUserFlow
     val isCreator = activeUser?.isCreator == true
+
+    val prefs = remember(context) { context.getSharedPreferences("onboarding_prefs", android.content.Context.MODE_PRIVATE) }
+    val draftDisplayName = remember(prefs) { prefs.getString("draft_display_name", null)?.takeIf { it.isNotBlank() } }
+    val draftUsername = remember(prefs) { prefs.getString("draft_username", null)?.takeIf { it.isNotBlank() } }
+
+    val resolvedDisplayName = remember(activeUser, draftDisplayName) {
+        if (activeUser?.displayName.isNullOrBlank() || activeUser?.displayName == "Planner User") {
+            draftDisplayName ?: activeUser?.displayName ?: "Planner Creator"
+        } else {
+            activeUser?.displayName ?: "Planner Creator"
+        }
+    }
+    val resolvedUsername = remember(activeUser, draftUsername) {
+        if (activeUser?.username.isNullOrBlank() || activeUser?.username?.startsWith("user_") == true) {
+            draftUsername ?: activeUser?.username ?: "creator"
+        } else {
+            activeUser?.username ?: "creator"
+        }
+    }
 
     // Retrieve task templates to validate plan has at least 1 task
     val templatesState = produceState<List<TaskTemplateEntity>?>(initialValue = null, plan.planId) {
@@ -689,7 +710,7 @@ fun PublishPlanDialog(
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Text(
-                                                        text = (activeUser?.displayName ?: "P").take(1).uppercase(),
+                                                        text = resolvedDisplayName.take(1).uppercase(),
                                                         style = MaterialTheme.typography.labelMedium,
                                                         fontWeight = FontWeight.Bold,
                                                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -698,14 +719,14 @@ fun PublishPlanDialog(
                                                 Spacer(modifier = Modifier.width(10.dp))
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(
-                                                        text = activeUser?.displayName ?: "Planner Creator",
+                                                        text = resolvedDisplayName,
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         fontWeight = FontWeight.Bold,
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis
                                                     )
                                                     Text(
-                                                        text = "@${activeUser?.username ?: "creator"}",
+                                                        text = "@$resolvedUsername",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
@@ -895,10 +916,44 @@ fun PublishPlanDialog(
                                             val templateDto = exportResult.getOrThrow()
                                             val json = planExporter.toJson(templateDto)
 
+                                            // Ensure local Room entity and cloud profile are healed if they had trigger defaults
+                                            val authorName = if (authorEntity.displayName.isBlank() || authorEntity.displayName == "Planner User") {
+                                                resolvedDisplayName
+                                            } else {
+                                                authorEntity.displayName
+                                            }
+                                            val authorHandle = if (authorEntity.username.isNullOrBlank() || authorEntity.username?.startsWith("user_") == true) {
+                                                resolvedUsername
+                                            } else {
+                                                authorEntity.username!!
+                                            }
+
+                                            if (authorName != authorEntity.displayName || authorHandle != authorEntity.username) {
+                                                userDao.updateProfile(authorEntity.userId, authorName, authorEntity.avatarUrl)
+                                                userDao.updateOnboardingProfile(
+                                                    userId = authorEntity.userId,
+                                                    username = authorHandle,
+                                                    categories = authorEntity.categories,
+                                                    interests = authorEntity.interests,
+                                                    level = authorEntity.experienceLevel
+                                                )
+                                                if (SupabaseConfig.isConfigured) {
+                                                    try {
+                                                        SupabaseConfig.postgrest.from("profiles").upsert(
+                                                            kotlinx.serialization.json.buildJsonObject {
+                                                                put("id", cloudUid)
+                                                                put("display_name", authorName)
+                                                                put("username", authorHandle)
+                                                            }
+                                                        )
+                                                    } catch (_: Exception) {}
+                                                }
+                                            }
+
                                             val cloudAuthor = CloudUser(
                                                 userId = cloudUid,
-                                                username = authorEntity.username ?: authorEntity.displayName.lowercase().replace(" ", "_"),
-                                                displayName = authorEntity.displayName,
+                                                username = authorHandle,
+                                                displayName = authorName,
                                                 avatarUrl = authorEntity.avatarUrl,
                                                 isCreator = authorEntity.isCreator
                                             )

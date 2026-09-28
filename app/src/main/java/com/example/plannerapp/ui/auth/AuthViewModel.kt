@@ -274,22 +274,35 @@ class AuthViewModel(
                 val profile = supabase.postgrest.from("profiles").select {
                     filter { eq("id", cloudUid) }
                 }.decodeList<JsonObject>().firstOrNull()
+                // 1. User's explicit choice in onboarding (draftDisplayName / draftUsername) has highest priority
+                // 2. Existing valid cloud profile (ignoring default "Planner User" and "user_xxxx" fallbacks)
+                // 3. Fallback to auth name or local entity
+                val remoteName = profile?.get("display_name")?.toString()?.trim('"')?.takeIf { 
+                    it.isNotBlank() && it != "null" && it != "Planner User" 
+                }
+                val remoteUsername = profile?.get("username")?.toString()?.trim('"')?.takeIf { 
+                    it.isNotBlank() && it != "null" && !it.startsWith("user_") 
+                }
+                val remoteAvatar = profile?.get("avatar_url")?.toString()?.trim('"')?.takeIf { 
+                    it.isNotBlank() && it != "null" 
+                }
 
-                val finalUsername = draftUsername
-                    ?: profile?.get("username")?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
-                    ?: effectiveDisplayName.lowercase().replace(" ", "_")
+                val finalDisplayName = draftDisplayName 
+                    ?: (if (existing?.displayName.isNullOrBlank() || existing?.displayName == "Planner User") remoteName ?: effectiveDisplayName else existing?.displayName!!)
+                val finalUsername = draftUsername 
+                    ?: remoteUsername 
+                    ?: existing?.username?.takeIf { !it.startsWith("user_") }
+                    ?: finalDisplayName.lowercase().replace(" ", "_")
+                val finalAvatar = draftAvatarPath ?: remoteAvatar ?: existing?.avatarUrl
 
                 val payload = buildJsonObject {
                     put("id", cloudUid)
                     put("username", finalUsername)
-                    put("display_name", effectiveDisplayName)
+                    put("display_name", finalDisplayName)
                     if (remoteAvatarUrl != null) {
                         put("avatar_url", remoteAvatarUrl)
-                    } else if (profile?.get("avatar_url") != null) {
-                        val existingAvatar = profile["avatar_url"]?.toString()?.trim('"')
-                        if (!existingAvatar.isNullOrBlank() && existingAvatar != "null") {
-                            put("avatar_url", existingAvatar)
-                        }
+                    } else if (remoteAvatar != null) {
+                        put("avatar_url", remoteAvatar)
                     }
                     put("onboarding_completed", true)
                 }
@@ -309,30 +322,16 @@ class AuthViewModel(
                     }
                 }
 
-                if (profile != null) {
-                    val isCompleted = profile["onboarding_completed"]?.toString()?.trim('"')?.toBooleanStrictOrNull() == true
-                    val remoteName = profile["display_name"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
-                    val remoteAvatar = profile["avatar_url"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
-                    val remoteUsername = profile["username"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
-
-                    if (remoteName != null || remoteAvatar != null) {
-                        userDao.updateProfile(targetUserId, remoteName ?: effectiveDisplayName, remoteAvatar ?: draftAvatarPath)
-                    }
-                    if (remoteUsername != null) {
-                        userDao.updateOnboardingProfile(
-                            userId = targetUserId,
-                            username = remoteUsername,
-                            categories = existing?.categories ?: "[]",
-                            interests = draftInterests ?: existing?.interests ?: "[]",
-                            level = draftLevel
-                        )
-                    }
-                    if (isCompleted || draftUsername != null) {
-                        userDao.markOnboardingComplete(targetUserId)
-                    }
-                } else {
-                    userDao.markOnboardingComplete(targetUserId)
-                }
+                // Update local Room database so it immediately reflects the real user profile
+                userDao.updateProfile(targetUserId, finalDisplayName, finalAvatar)
+                userDao.updateOnboardingProfile(
+                    userId = targetUserId,
+                    username = finalUsername,
+                    categories = existing?.categories ?: "[]",
+                    interests = draftInterests ?: existing?.interests ?: "[]",
+                    level = draftLevel
+                )
+                userDao.markOnboardingComplete(targetUserId)
             } catch (e: Exception) {
                 // Offline fallback — safely proceed with local state
                 if (draftUsername != null || draftInterests != null) {

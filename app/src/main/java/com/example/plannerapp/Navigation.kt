@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import com.example.plannerapp.theme.PhysicsSpec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
@@ -239,6 +241,51 @@ fun MainNavigation() {
     var showCreatePlanDialog by remember { mutableStateOf(false) }
 
     val activeUser by userDao.getActiveUser().collectAsStateWithLifecycle(initialValue = null)
+
+    // Self-healing: if user profile has placeholder "Planner User" or auto-generated "user_xxxx",
+    // restore the user's chosen name and handle from onboarding draft preferences.
+    LaunchedEffect(activeUser?.userId) {
+        val user = activeUser ?: return@LaunchedEffect
+        val prefs = context.getSharedPreferences("onboarding_prefs", android.content.Context.MODE_PRIVATE)
+        val draftName = prefs.getString("draft_display_name", null)?.takeIf { it.isNotBlank() }
+        val draftUser = prefs.getString("draft_username", null)?.takeIf { it.isNotBlank() }
+        val draftAvatar = prefs.getString("draft_avatar_path", null)?.takeIf { it.isNotBlank() }
+
+        val needsNameHeal = (user.displayName == "Planner User" || user.displayName.isBlank()) && draftName != null
+        val needsUserHeal = (user.username.isNullOrBlank() || user.username?.startsWith("user_") == true) && draftUser != null
+        val needsAvatarHeal = user.avatarUrl.isNullOrBlank() && draftAvatar != null
+
+        if (needsNameHeal || needsUserHeal || needsAvatarHeal) {
+            val resolvedName = if (needsNameHeal) draftName!! else user.displayName
+            val resolvedUser = if (needsUserHeal) draftUser!! else (user.username ?: "")
+            val resolvedAvatar = if (needsAvatarHeal) draftAvatar else user.avatarUrl
+
+            userDao.updateProfile(user.userId, resolvedName, resolvedAvatar)
+            if (resolvedUser.isNotBlank()) {
+                userDao.updateOnboardingProfile(
+                    userId = user.userId,
+                    username = resolvedUser,
+                    categories = user.categories,
+                    interests = user.interests,
+                    level = user.experienceLevel
+                )
+            }
+
+            val cloudUid = user.cloudUserId
+            if (!cloudUid.isNullOrBlank() && com.example.plannerapp.auth.SupabaseConfig.isConfigured) {
+                try {
+                    val payload = kotlinx.serialization.json.buildJsonObject {
+                        put("id", cloudUid)
+                        put("display_name", resolvedName)
+                        put("username", resolvedUser)
+                        if (resolvedAvatar != null) put("avatar_url", resolvedAvatar)
+                    }
+                    com.example.plannerapp.auth.SupabaseConfig.postgrest.from("profiles").upsert(payload)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     val homeUiState by homeViewModel.uiState.collectAsStateWithLifecycle()
     val allPlans: List<com.example.plannerapp.data.PlanEntity> = (homeUiState as? com.example.plannerapp.ui.state.Resource.Success)?.data?.plans ?: emptyList()
     val pinnedPlans = remember(allPlans) { allPlans.filter { it.isPinned } }

@@ -284,7 +284,6 @@ class SupabaseSocialRepository(
                 Columns.raw("*, creator:profiles(*)")
             ) {
                 filter { eq("id", planId) }
-                single()
             }.decodeSingleOrNull<PublicPlan>()
 
             val enriched = plan?.let { enrichPlansWithUserState(listOf(it)).firstOrNull() }
@@ -399,7 +398,6 @@ class SupabaseSocialRepository(
 
                 val createdPlan = postgrest.from("public_plans").insert(newPlanPayload) {
                     select()
-                    single()
                 }.decodeSingle<PublicPlan>()
 
                 // BUG-09: plan_versions is the authoritative source for templateJson.
@@ -815,7 +813,6 @@ class SupabaseSocialRepository(
             }
             val inserted = postgrest.from("comments").insert(payload) {
                 select(Columns.raw("*, author:profiles!user_id(*)"))
-                single()
             }.decodeSingle<SocialComment>()
             Result.success(socialCommentToPostComment(inserted))
         } catch (e: Exception) {
@@ -909,7 +906,6 @@ class SupabaseSocialRepository(
 
             val refreshed = postgrest.from("comments").select(Columns.raw("*, author:profiles!user_id(*)")) {
                 filter { eq("id", commentId) }
-                single()
             }.decodeSingle<SocialComment>()
 
             Result.success(socialCommentToPostComment(refreshed.copy(isLiked = !wasLiked)))
@@ -948,7 +944,6 @@ class SupabaseSocialRepository(
         try {
             val profile = postgrest.from("profiles").select {
                 filter { eq("id", userId) }
-                single()
             }.decodeSingleOrNull<UserProfile>()
 
             if (profile != null) {
@@ -1344,7 +1339,6 @@ class SupabaseSocialRepository(
         try {
             val settings = postgrest.from("privacy_settings").select {
                 filter { eq("user_id", userId) }
-                single()
             }.decodeSingleOrNull<PrivacySettings>()
             emit(settings ?: PrivacySettings(userId = userId))
         } catch (e: Exception) {
@@ -1380,7 +1374,6 @@ class SupabaseSocialRepository(
 
             val settings = postgrest.from("privacy_settings").select {
                 filter { eq("user_id", targetUserId) }
-                single()
             }.decodeSingleOrNull<PrivacySettings>() ?: PrivacySettings(userId = targetUserId)
 
             when (settings.allowMessagesFrom.uppercase()) {
@@ -1547,7 +1540,6 @@ class SupabaseSocialRepository(
                     val otherProfile = try {
                         postgrest.from("profiles").select {
                             filter { eq("id", otherUserId) }
-                            single()
                         }.decodeSingleOrNull<UserProfile>()
                     } catch (_: Exception) { null }
 
@@ -1560,7 +1552,6 @@ class SupabaseSocialRepository(
             // No existing conversation found — create a new one
             val conv = postgrest.from("conversations").insert(buildJsonObject {}) {
                 select()
-                single()
             }.decodeSingle<JsonObject>()
             val convId = conv["id"]?.toString()?.trim('"') ?: UUID.randomUUID().toString()
 
@@ -1588,7 +1579,6 @@ class SupabaseSocialRepository(
 
             val otherProfile = postgrest.from("profiles").select {
                 filter { eq("id", otherUserId) }
-                single()
             }.decodeSingleOrNull<UserProfile>()
 
             val resultConv = Conversation(
@@ -1697,7 +1687,6 @@ class SupabaseSocialRepository(
             }
             val inserted = postgrest.from("messages").insert(payload) {
                 select()
-                single()
             }.decodeSingle<DirectMessage>()
 
             val current = _cachedMessages.value[conversationId] ?: emptyList()
