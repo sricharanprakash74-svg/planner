@@ -990,7 +990,11 @@ class SupabaseSocialRepository(
 
     override suspend fun followCreator(userId: String): Result<Boolean> = withContext(Dispatchers.IO) {
         val uid = currentUserId
-        _followingUserIds.value = _followingUserIds.value + userId
+        if (uid == userId) {
+            return@withContext Result.failure(
+                IllegalArgumentException("You cannot follow yourself")
+            )
+        }
         if (uid != null && SupabaseConfig.isConfigured) {
             try {
                 val payload = buildJsonObject {
@@ -998,7 +1002,12 @@ class SupabaseSocialRepository(
                     put("following_id", userId)
                 }
                 postgrest.from("user_follows").insert(payload)
-            } catch (_: Exception) {}
+                _followingUserIds.value = _followingUserIds.value + userId
+            } catch (e: Exception) {
+                return@withContext Result.failure(e)
+            }
+        } else {
+            _followingUserIds.value = _followingUserIds.value + userId
         }
         Result.success(true)
     }
