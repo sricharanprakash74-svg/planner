@@ -75,8 +75,6 @@ class SettingsViewModel(
             val user = userDao.getActiveUserOnce()
             if (user != null) {
                 userDao.deleteUser(user.userId)
-                // Re-create a default guest
-                userDao.insertUser(UserEntity(displayName = "Guest"))
             }
             onSuccess()
         }

@@ -52,9 +52,32 @@ class OnboardingViewModel(
     private val _experienceLevel = MutableStateFlow(ExperienceLevel.BEGINNER)
     val experienceLevel: StateFlow<ExperienceLevel> = _experienceLevel.asStateFlow()
 
+    private val _avatarUri = MutableStateFlow<android.net.Uri?>(null)
+    val avatarUri: StateFlow<android.net.Uri?> = _avatarUri.asStateFlow()
+
     private var usernameValidationJob: Job? = null
 
     init {
+        // Load draft onboarding values if present
+        val draftName = prefs.getString("draft_display_name", null)
+        val draftUser = prefs.getString("draft_username", null)
+        val draftInterests = prefs.getString("draft_interests", null)
+        val draftAvatar = prefs.getString("draft_avatar_path", null)
+        if (!draftName.isNullOrBlank()) _displayName.value = draftName
+        if (!draftUser.isNullOrBlank()) {
+            _username.value = draftUser
+            _usernameValidationState.value = UsernameValidationState.VALID
+        }
+        if (!draftInterests.isNullOrBlank()) {
+            _selectedInterests.value = draftInterests.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        }
+        if (!draftAvatar.isNullOrBlank()) {
+            val f = java.io.File(draftAvatar)
+            if (f.exists()) {
+                _avatarUri.value = android.net.Uri.fromFile(f)
+            }
+        }
+
         // Load existing active user info if present
         viewModelScope.launch {
             val activeUser = userDao.getActiveUserOnce()
@@ -180,9 +203,6 @@ class OnboardingViewModel(
         _selectedInterests.value = current
     }
 
-    private val _avatarUri = MutableStateFlow<android.net.Uri?>(null)
-    val avatarUri: StateFlow<android.net.Uri?> = _avatarUri.asStateFlow()
-
     fun setAvatarUri(uri: android.net.Uri?) {
         _avatarUri.value = uri
     }
@@ -193,21 +213,28 @@ class OnboardingViewModel(
             val finalDisplayName = _displayName.value.trim().ifBlank { user?.displayName ?: "Planner User" }
             val finalUsername = _username.value.trim().lowercase()
 
+            prefs.edit()
+                .putString("draft_display_name", finalDisplayName)
+                .putString("draft_username", finalUsername)
+                .apply()
+
             var localAvatarPath = user?.avatarUrl
             var remoteAvatarUrl: String? = null
 
             val uri = _avatarUri.value
-            if (uri != null && context != null && user != null) {
+            if (uri != null && context != null) {
                 try {
                     val inputStream = context.contentResolver.openInputStream(uri)
                     if (inputStream != null) {
-                        val avatarFile = java.io.File(context.filesDir, "avatar_${user.userId}.jpg")
+                        val avatarFileName = if (user != null) "avatar_${user.userId}.jpg" else "avatar_draft.jpg"
+                        val avatarFile = java.io.File(context.filesDir, avatarFileName)
                         avatarFile.outputStream().use { output ->
                             inputStream.copyTo(output)
                         }
                         localAvatarPath = avatarFile.absolutePath
+                        prefs.edit().putString("draft_avatar_path", localAvatarPath).apply()
 
-                        val uid = SupabaseConfig.auth.currentUserOrNull()?.id ?: user.cloudUserId
+                        val uid = SupabaseConfig.auth.currentUserOrNull()?.id ?: user?.cloudUserId
                         if (SupabaseConfig.isConfigured && !uid.isNullOrBlank()) {
                             try {
                                 val bytes = avatarFile.readBytes()
@@ -260,13 +287,19 @@ class OnboardingViewModel(
 
     fun saveInterests(onSuccess: () -> Unit) {
         viewModelScope.launch {
+            val interestsStr = _selectedInterests.value.joinToString(",")
+            prefs.edit()
+                .putString("draft_interests", interestsStr)
+                .putString("draft_level", _experienceLevel.value.name)
+                .apply()
+
             val user = userDao.getActiveUserOnce()
             if (user != null) {
                 userDao.updateOnboardingProfile(
                     userId = user.userId,
                     username = _username.value.trim().lowercase(),
                     categories = "[]",
-                    interests = _selectedInterests.value.joinToString(","),
+                    interests = interestsStr,
                     level = _experienceLevel.value.name
                 )
             }

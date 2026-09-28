@@ -61,7 +61,7 @@ fun SignInScreen(
 
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var displayName by remember { mutableStateOf("") }
+    var displayName by remember { mutableStateOf(viewModel.getDraftDisplayName() ?: "") }
     var passwordVisible by remember { mutableStateOf(false) }
 
     // Google Sign In via Credential Manager & Supabase ComposeAuth
@@ -221,24 +221,6 @@ fun SignInScreen(
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(AppDimens.Space12))
-
-            // ── Secondary / Ghost Button: #6B7280 label ──
-            TextButton(
-                onClick = { viewModel.continueAsGuest(onSuccess = onSignInSuccess) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(AppDimens.ButtonHeight),
-                shape = RoundedCornerShape(AppDimens.CornerButton)
-            ) {
-                Text(
-                    text = "Continue as guest",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
             Spacer(modifier = Modifier.height(AppDimens.Space32))
         }
     }

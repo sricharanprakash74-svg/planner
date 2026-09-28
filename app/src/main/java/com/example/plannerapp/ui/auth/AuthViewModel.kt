@@ -17,12 +17,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 data class AuthUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val successMessage: String? = null,
-    val isSignUpMode: Boolean = false,
+    val isSignUpMode: Boolean = true,
     val isAuthenticated: Boolean = false
 )
 
@@ -34,6 +36,11 @@ class AuthViewModel(
 
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+    fun getDraftDisplayName(): String? {
+        val prefs = appContext?.getSharedPreferences("onboarding_prefs", android.content.Context.MODE_PRIVATE)
+        return prefs?.getString("draft_display_name", null)?.takeIf { it.isNotBlank() }
+    }
 
     fun toggleAuthMode() {
         _uiState.update { 
@@ -194,22 +201,16 @@ class AuthViewModel(
         }
     }
 
-    fun continueAsGuest(onSuccess: () -> Unit) {
-        viewModelScope.launch {
-            try {
-                val activeUser = userDao.getActiveUserOnce()
-                if (activeUser == null) {
-                    userDao.insertUser(UserEntity(displayName = "Guest"))
-                }
-                onSuccess()
-            } catch (e: Exception) {
-                // If anything fails, still allow guest progression
-                onSuccess()
-            }
-        }
-    }
-
     private suspend fun syncLocalUserWithCloud(cloudUid: String, email: String, displayName: String) {
+        val prefs = appContext?.getSharedPreferences("onboarding_prefs", android.content.Context.MODE_PRIVATE)
+        val draftUsername = prefs?.getString("draft_username", null)?.takeIf { it.isNotBlank() }
+        val draftDisplayName = prefs?.getString("draft_display_name", null)?.takeIf { it.isNotBlank() }
+        val draftAvatarPath = prefs?.getString("draft_avatar_path", null)?.takeIf { it.isNotBlank() }
+        val draftInterests = prefs?.getString("draft_interests", null)?.takeIf { it.isNotBlank() }
+        val draftLevel = prefs?.getString("draft_level", "BEGINNER") ?: "BEGINNER"
+
+        val effectiveDisplayName = draftDisplayName ?: displayName
+
         val existing = userDao.getActiveUserOnce()
         val targetUserId: Long
         if (existing != null) {
@@ -218,55 +219,139 @@ class AuthViewModel(
                 userId = oldUserId,
                 cloudUserId = cloudUid,
                 email = email,
-                displayName = displayName
+                displayName = effectiveDisplayName
             )
             targetUserId = oldUserId
-            // BUG-10: upgradeToCloudUser updates the existing row in-place (same userId),
-            // so all plans with userId = oldUserId continue to resolve correctly. No migration needed.
-            // If the userId ever changes (e.g., full re-insert), call plannerDao.migrateUserPlans(oldUserId, newUserId).
         } else {
             targetUserId = userDao.insertUser(
                 UserEntity(
                     cloudUserId = cloudUid,
                     email = email,
-                    displayName = displayName
+                    displayName = effectiveDisplayName,
+                    username = draftUsername,
+                    interests = draftInterests ?: "[]",
+                    experienceLevel = draftLevel,
+                    avatarUrl = draftAvatarPath,
+                    onboardingComplete = if (draftUsername != null || draftInterests != null) 1 else 0
                 )
             )
         }
 
-        // Check remote profile for existing onboarding status
+        var remoteAvatarUrl: String? = null
+        if (!draftAvatarPath.isNullOrBlank() && SupabaseConfig.isConfigured) {
+            try {
+                val avatarFile = java.io.File(draftAvatarPath)
+                if (avatarFile.exists()) {
+                    val bytes = avatarFile.readBytes()
+                    val path = "avatars/${cloudUid}.jpg"
+                    SupabaseConfig.storage.from("avatars").upload(
+                        path = path,
+                        data = bytes,
+                        options = { upsert = true }
+                    )
+                    remoteAvatarUrl = SupabaseConfig.storage.from("avatars").publicUrl(path)
+                }
+            } catch (_: Exception) {}
+        }
+
+        if (draftUsername != null || draftInterests != null || draftAvatarPath != null) {
+            userDao.updateProfile(targetUserId, effectiveDisplayName, draftAvatarPath ?: existing?.avatarUrl)
+            userDao.updateOnboardingProfile(
+                userId = targetUserId,
+                username = draftUsername ?: existing?.username,
+                categories = "[]",
+                interests = draftInterests ?: existing?.interests ?: "[]",
+                level = draftLevel
+            )
+            userDao.markOnboardingComplete(targetUserId)
+        }
+
+        // Check & sync remote profile in Supabase
         if (SupabaseConfig.isConfigured) {
             try {
                 val profile = supabase.postgrest.from("profiles").select {
                     filter { eq("id", cloudUid) }
                 }.decodeList<JsonObject>().firstOrNull()
 
+                val finalUsername = draftUsername
+                    ?: profile?.get("username")?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: effectiveDisplayName.lowercase().replace(" ", "_")
+
+                val payload = buildJsonObject {
+                    put("id", cloudUid)
+                    put("username", finalUsername)
+                    put("display_name", effectiveDisplayName)
+                    if (remoteAvatarUrl != null) {
+                        put("avatar_url", remoteAvatarUrl)
+                    } else if (profile?.get("avatar_url") != null) {
+                        val existingAvatar = profile["avatar_url"]?.toString()?.trim('"')
+                        if (!existingAvatar.isNullOrBlank() && existingAvatar != "null") {
+                            put("avatar_url", existingAvatar)
+                        }
+                    }
+                    put("onboarding_completed", true)
+                }
+                supabase.postgrest.from("profiles").upsert(payload)
+
+                // Sync user_interests to Supabase
+                if (!draftInterests.isNullOrBlank()) {
+                    val interestList = draftInterests.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                    val records = interestList.map { interest ->
+                        buildJsonObject {
+                            put("user_id", cloudUid)
+                            put("interest_id", interest.lowercase())
+                        }
+                    }
+                    if (records.isNotEmpty()) {
+                        supabase.postgrest.from("user_interests").upsert(records)
+                    }
+                }
+
                 if (profile != null) {
                     val isCompleted = profile["onboarding_completed"]?.toString()?.trim('"')?.toBooleanStrictOrNull() == true
                     val remoteName = profile["display_name"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
                     val remoteAvatar = profile["avatar_url"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
                     val remoteUsername = profile["username"]?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
-                    
+
                     if (remoteName != null || remoteAvatar != null) {
-                        userDao.updateProfile(targetUserId, remoteName ?: displayName, remoteAvatar)
+                        userDao.updateProfile(targetUserId, remoteName ?: effectiveDisplayName, remoteAvatar ?: draftAvatarPath)
                     }
                     if (remoteUsername != null) {
                         userDao.updateOnboardingProfile(
                             userId = targetUserId,
                             username = remoteUsername,
                             categories = existing?.categories ?: "[]",
-                            interests = existing?.interests ?: "[]",
-                            level = existing?.experienceLevel ?: "BEGINNER"
+                            interests = draftInterests ?: existing?.interests ?: "[]",
+                            level = draftLevel
                         )
                     }
-                    if (isCompleted) {
+                    if (isCompleted || draftUsername != null) {
                         userDao.markOnboardingComplete(targetUserId)
                     }
+                } else {
+                    userDao.markOnboardingComplete(targetUserId)
                 }
             } catch (e: Exception) {
-                // Offline or table not ready — safely proceed with local state
+                // Offline fallback — safely proceed with local state
+                if (draftUsername != null || draftInterests != null) {
+                    userDao.markOnboardingComplete(targetUserId)
+                }
+            }
+        } else {
+            if (draftUsername != null || draftInterests != null) {
+                userDao.markOnboardingComplete(targetUserId)
             }
         }
+
+        // Clean up draft prefs after saving
+        prefs?.edit()
+            ?.remove("draft_username")
+            ?.remove("draft_display_name")
+            ?.remove("draft_avatar_path")
+            ?.remove("draft_interests")
+            ?.remove("draft_level")
+            ?.remove("current_step")
+            ?.apply()
     }
 }
 

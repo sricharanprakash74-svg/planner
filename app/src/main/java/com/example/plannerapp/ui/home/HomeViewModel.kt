@@ -64,14 +64,6 @@ class HomeViewModel(
             initialValue = Resource.Loading
         )
 
-    init {
-        viewModelScope.launch {
-            if (userDao.getActiveUserOnce() == null) {
-                userDao.insertUser(com.example.plannerapp.data.UserEntity(displayName = "Guest"))
-            }
-        }
-    }
-
     fun createQuickPlan(
         title: String,
         description: String = "",

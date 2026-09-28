@@ -30,6 +30,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -59,6 +60,7 @@ fun OnboardingProfileScreen(
     usernameErrorMessage: String?,
     avatarUri: android.net.Uri? = null,
     onAvatarSelected: (android.net.Uri) -> Unit = {},
+    onSignInClick: () -> Unit = {},
     onContinue: () -> Unit
 ) {
     val cameraInteractionSource = remember { MutableInteractionSource() }
@@ -302,6 +304,20 @@ fun OnboardingProfileScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(AppDimens.Space28))
+        Spacer(modifier = Modifier.height(AppDimens.Space8))
+
+        TextButton(
+            onClick = onSignInClick,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = "Already have an account? Sign in",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(AppDimens.Space20))
     }
 }

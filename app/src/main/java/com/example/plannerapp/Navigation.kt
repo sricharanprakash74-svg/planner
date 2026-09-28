@@ -104,7 +104,7 @@ fun MainNavigation() {
 
     LaunchedEffect(Unit) {
         val activeUser = userDao.getActiveUserOnce()
-        initialHasUser = activeUser != null
+        initialHasUser = activeUser != null && !activeUser.cloudUserId.isNullOrBlank()
         initialOnboardingComplete = activeUser?.onboardingComplete == 1
         isAuthChecked = true
     }
@@ -121,7 +121,7 @@ fun MainNavigation() {
     }
 
     val initialDestination = when {
-        !initialHasUser -> SignIn
+        !initialHasUser -> Onboarding
         !initialOnboardingComplete -> Onboarding
         else -> Home
     }
@@ -167,7 +167,7 @@ fun MainNavigation() {
         }
     )
 
-    val currentKey = backStack.lastOrNull() ?: if (initialHasUser) Home else SignIn
+    val currentKey = backStack.lastOrNull() ?: if (initialHasUser && initialOnboardingComplete) Home else Onboarding
 
     // Synchronize bottom bar active tab indicator with the current destination on the back stack
     LaunchedEffect(currentKey) {
@@ -180,7 +180,7 @@ fun MainNavigation() {
     }
 
     // Handle system back gesture & hardware back button with predictive back physics
-    val canGoBack = backStack.size > 1 || (currentKey != Home && currentKey != SignIn)
+    val canGoBack = backStack.size > 1 || (currentKey != Home && currentKey != Onboarding)
     var backProgress by remember { mutableFloatStateOf(0f) }
     var isPredictiveBackActive by remember { mutableStateOf(false) }
 
@@ -203,7 +203,7 @@ fun MainNavigation() {
             }
             if (backStack.size > 1) {
                 backStack.removeLastOrNull()
-            } else if (currentKey != Home && currentKey != SignIn) {
+            } else if (currentKey != Home && currentKey != Onboarding) {
                 backStack.clear()
                 backStack.add(Home)
                 currentTab = BottomNavTab.HOME
@@ -407,29 +407,19 @@ fun MainNavigation() {
                     SignInScreenWrapper(
                         viewModel = authViewModel,
                         onSignInSuccess = {
-                            // Check fresh user to see if they need onboarding
-                            rootScope.launch {
-                                val freshUser = userDao.getActiveUserOnce()
-                                backStack.clear()
-                                if (freshUser?.onboardingComplete == 0) {
-                                    backStack.add(Onboarding)
-                                } else {
-                                    backStack.add(Home)
-                                    currentTab = BottomNavTab.HOME
-                                }
-                            }
+                            backStack.clear()
+                            backStack.add(Home)
+                            currentTab = BottomNavTab.HOME
                         }
                     )
                 }
                 entry<Onboarding> {
                     com.example.plannerapp.ui.onboarding.OnboardingScreenWrapper(
-                        onFinish = {
-                            backStack.clear()
-                            backStack.add(Home)
-                            currentTab = BottomNavTab.HOME
+                        onProceedToAuth = {
+                            backStack.add(SignIn)
                         },
-                        onUpgradeClick = {
-                            backStack.add(OnboardingPaywall)
+                        onSignInClick = {
+                            backStack.add(SignIn)
                         },
                         userDao = userDao
                     )
