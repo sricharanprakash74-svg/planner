@@ -15,6 +15,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.NewReleases
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,7 +41,8 @@ fun PlanDetailTopBar(
     onBack: () -> Unit,
     onShareStory: () -> Unit,
     onEditPlan: () -> Unit,
-    onDeletePlan: () -> Unit
+    onDeletePlan: () -> Unit,
+    onPublishPlan: () -> Unit = {}
 ) {
     var planMenuExpanded by remember { mutableStateOf(false) }
 
@@ -79,6 +81,14 @@ fun PlanDetailTopBar(
                     expanded = planMenuExpanded,
                     onDismissRequest = { planMenuExpanded = false }
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Publish to Community") },
+                        leadingIcon = { Icon(Icons.Outlined.Public, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                        onClick = {
+                            planMenuExpanded = false
+                            onPublishPlan()
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("Export Story Card") },
                         leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },

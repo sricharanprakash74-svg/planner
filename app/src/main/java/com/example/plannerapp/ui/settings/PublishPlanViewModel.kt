@@ -3,13 +3,17 @@ package com.example.plannerapp.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.plannerapp.data.JoinedCommunityEntity
 import com.example.plannerapp.data.PlanEntity
 import com.example.plannerapp.data.PlannerRepository
+import com.example.plannerapp.data.TaskTemplateEntity
 import com.example.plannerapp.data.UserDao
+import com.example.plannerapp.data.UserEntity
 import com.example.plannerapp.data.social.CloudUser
 import com.example.plannerapp.data.social.SocialRepository
 import com.example.plannerapp.data.template.PlanExporter
 import com.google.gson.Gson
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -18,7 +22,7 @@ import kotlinx.coroutines.launch
 sealed class PublishStatus {
     object Idle : PublishStatus()
     object Loading : PublishStatus()
-    object Success : PublishStatus()
+    data class Success(val postId: String) : PublishStatus()
     data class Error(val message: String) : PublishStatus()
 }
 
@@ -28,6 +32,8 @@ class PublishPlanViewModel(
     private val socialRepository: SocialRepository,
     private val creditRepository: com.example.plannerapp.credits.CreditRepository? = null
 ) : ViewModel() {
+
+    val activeUser: Flow<UserEntity?> = userDao.getActiveUser()
 
     private val _plans = MutableStateFlow<List<PlanEntity>>(emptyList())
     val plans: StateFlow<List<PlanEntity>> = _plans
@@ -42,6 +48,10 @@ class PublishPlanViewModel(
         }
     }
 
+    suspend fun getTemplatesForPlan(planId: Long): List<TaskTemplateEntity> {
+        return repository.getTemplatesForPlan(planId)
+    }
+
     fun publish(
         planId: Long,
         title: String,
@@ -54,12 +64,20 @@ class PublishPlanViewModel(
         viewModelScope.launch {
             _publishStatus.value = PublishStatus.Loading
             try {
-                val user = userDao.getActiveUserOnce() ?: throw IllegalStateException("No active user")
-                if (com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull() == null && user.cloudUserId.isNullOrBlank()) {
+                val user = userDao.getActiveUserOnce() ?: throw IllegalStateException("No active user session")
+                val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id
+                    ?: user.cloudUserId
+                if (cloudUid.isNullOrBlank()) {
                     _publishStatus.value = PublishStatus.Error("Please sign in to publish plans to the online community.")
                     return@launch
                 }
+
                 val templates = repository.getTemplatesForPlan(planId)
+                if (templates.isEmpty()) {
+                    _publishStatus.value = PublishStatus.Error("Cannot publish an empty routine. Please add at least one task to this plan first.")
+                    return@launch
+                }
+
                 val plan = repository.getPlansForUser(user.userId).first().find { it.planId == planId }
                     ?: throw IllegalStateException("Plan not found")
 
@@ -67,12 +85,6 @@ class PublishPlanViewModel(
                 val templateDto = exporter.exportPlan(plan.copy(heading = title, description = description), templates, user, tags, category)
                 val templateJson = Gson().toJson(templateDto)
 
-                val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id
-                    ?: user.cloudUserId
-                if (cloudUid.isNullOrBlank()) {
-                    _publishStatus.value = PublishStatus.Error("Please sign in to publish plans to the online community.")
-                    return@launch
-                }
                 val cloudUser = CloudUser(
                     userId = cloudUid,
                     username = user.username ?: user.displayName.lowercase().replace(" ", "_"),
@@ -97,11 +109,23 @@ class PublishPlanViewModel(
                 )
 
                 if (postResult.isSuccess) {
-                    val post = postResult.getOrNull()
-                    if (post != null) {
-                        creditRepository?.awardPlanShare(user.userId, post.postId)
-                    }
-                    _publishStatus.value = PublishStatus.Success
+                    val post = postResult.getOrThrow()
+
+                    // Update local Room database so plan reflects its public status
+                    repository.setPlanPublicStatus(planId, true)
+
+                    // Link local plan to published community post
+                    repository.insertJoinedCommunity(
+                        JoinedCommunityEntity(
+                            localPlanId = planId,
+                            postId = post.postId,
+                            communityTitle = title,
+                            creatorName = user.displayName
+                        )
+                    )
+
+                    creditRepository?.awardPlanShare(user.userId, post.postId)
+                    _publishStatus.value = PublishStatus.Success(post.postId)
                 } else {
                     _publishStatus.value = PublishStatus.Error(postResult.exceptionOrNull()?.message ?: "Publish failed")
                 }

@@ -492,7 +492,8 @@ fun MainNavigation() {
                 entry<SettingsPublishPlan> {
                     PublishPlanScreen(
                         viewModel = publishPlanViewModel,
-                        onBack = { backStack.removeLastOrNull() }
+                        onBack = { backStack.removeLastOrNull() },
+                        onNavigateToDiscussion = { postId -> backStack.add(CommunityDiscussion(postId)) }
                     )
                 }
                 entry<SettingsBackup> {

@@ -38,7 +38,9 @@ class CreatePlanViewModel(
         tasksInput: List<Pair<String, Set<Int>>>,
         reminderEnabled: Boolean = false,
         reminderTime: String? = "08:00",
-        isPublic: Boolean = false
+        isPublic: Boolean = false,
+        category: String = "Productivity",
+        tags: List<String> = emptyList()
     ) {
         viewModelScope.launch {
             try {
@@ -116,13 +118,14 @@ class CreatePlanViewModel(
                             avatarUrl = user.avatarUrl,
                             isCreator = user.isCreator
                         )
+                        val effectiveTags = if (tags.isNotEmpty()) tags else listOf(category.lowercase().replace(" & ", "_").replace(" ", "_"))
                         val templateDto = PlanTemplateDto(
                             title = name,
                             description = description,
                             targetDurationDays = totalDays + 1,
                             defaultTaskDurationDays = 1,
-                            tags = emptyList(),
-                            category = "General",
+                            tags = effectiveTags,
+                            category = category,
                             author = AuthorDto(author.userId, author.displayName, author.avatarUrl, author.isCreator),
                             tasks = tasksInput.map { (taskDesc, selectedDays) ->
                                 TaskTemplateDto(
@@ -133,16 +136,29 @@ class CreatePlanViewModel(
                                 )
                             }
                         )
-                        socialRepository.createPost(
+                        val postResult = socialRepository.createPost(
                             author = author,
                             title = name,
                             description = description,
                             planTemplateJson = Gson().toJson(templateDto),
                             durationDays = totalDays + 1,
-                            tags = emptyList(),
-                            category = "General",
+                            tags = effectiveTags,
+                            category = category,
                             visibility = "public"
                         )
+                        if (postResult.isSuccess) {
+                            val post = postResult.getOrNull()
+                            if (post != null) {
+                                repository.insertJoinedCommunity(
+                                    com.example.plannerapp.data.JoinedCommunityEntity(
+                                        localPlanId = newPlanId,
+                                        postId = post.postId,
+                                        communityTitle = name,
+                                        creatorName = user.displayName
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
 

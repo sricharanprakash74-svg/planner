@@ -421,21 +421,17 @@ class PlanDetailViewModel(
                     } catch (e: Exception) { 7 }
 
                     if (isPublic) {
-                        val author = if (user != null) {
-                            com.example.plannerapp.data.social.CloudUser(
-                                userId = user.cloudUserId ?: user.userId.toString(),
-                                username = user.displayName.replace(" ", "_").lowercase(),
-                                displayName = user.displayName,
-                                avatarUrl = user.avatarUrl,
-                                isCreator = user.isCreator
-                            )
-                        } else {
-                            com.example.plannerapp.data.social.CloudUser(
-                                userId = "local_user",
-                                username = "planner_user",
-                                displayName = "Planner User"
-                            )
-                        }
+                        val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id
+                            ?: user?.cloudUserId
+                            ?: return@launch // Requires authenticated cloud user
+
+                        val author = com.example.plannerapp.data.social.CloudUser(
+                            userId = cloudUid,
+                            username = user?.username ?: user?.displayName?.replace(" ", "_")?.lowercase() ?: "creator",
+                            displayName = user?.displayName ?: "Creator",
+                            avatarUrl = user?.avatarUrl,
+                            isCreator = user?.isCreator == true
+                        )
 
                         val templateDto = com.example.plannerapp.data.template.PlanTemplateDto(
                             title = plan.heading,
@@ -463,7 +459,7 @@ class PlanDetailViewModel(
                             }
                         )
 
-                        targetRepo.createPost(
+                        val postResult = targetRepo.createPost(
                             author = author,
                             title = plan.heading,
                             description = plan.description,
@@ -473,6 +469,19 @@ class PlanDetailViewModel(
                             category = "General",
                             visibility = "public"
                         )
+                        if (postResult.isSuccess) {
+                            val post = postResult.getOrNull()
+                            if (post != null) {
+                                repository.insertJoinedCommunity(
+                                    com.example.plannerapp.data.JoinedCommunityEntity(
+                                        localPlanId = planId,
+                                        postId = post.postId,
+                                        communityTitle = plan.heading,
+                                        creatorName = author.displayName
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
             } catch (e: Exception) {

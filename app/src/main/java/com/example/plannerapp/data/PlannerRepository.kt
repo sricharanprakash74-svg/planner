@@ -344,6 +344,10 @@ class PlannerRepository(private val dao: PlannerDao) {
         return dao.getJoinedCommunityForPlanOnce(planId)
     }
 
+    suspend fun insertJoinedCommunity(joined: JoinedCommunityEntity): Long {
+        return dao.insertJoinedCommunity(joined)
+    }
+
     suspend fun getTemplatesForPlan(planId: Long): List<TaskTemplateEntity> {
         return dao.getTemplatesForPlan(planId)
     }

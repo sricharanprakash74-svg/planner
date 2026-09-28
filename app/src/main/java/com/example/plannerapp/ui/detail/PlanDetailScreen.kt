@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import com.example.plannerapp.data.DailyTaskView
@@ -49,6 +50,7 @@ fun PlanDetailScreen(
     var showEditPlanDialog by remember { mutableStateOf(false) }
     var showDeletePlanDialog by remember { mutableStateOf(false) }
     var showShareStoryDialog by remember { mutableStateOf(false) }
+    var showPublishPlanDialog by remember { mutableStateOf(false) }
 
     var showFullCalendarDialog by remember { mutableStateOf(false) }
     var showEarlyFinishConfirmDialog by remember { mutableStateOf(false) }
@@ -113,7 +115,8 @@ fun PlanDetailScreen(
                 onBack = onBack,
                 onShareStory = { showShareStoryDialog = true },
                 onEditPlan = { showEditPlanDialog = true },
-                onDeletePlan = { showDeletePlanDialog = true }
+                onDeletePlan = { showDeletePlanDialog = true },
+                onPublishPlan = { showPublishPlanDialog = true }
             )
         },
         floatingActionButton = {
@@ -451,6 +454,23 @@ fun PlanDetailScreen(
                 coroutineScope.launch {
                     snackbarHostState.showSnackbar("Story Card exported! +25 credits awarded.")
                 }
+            }
+        )
+    }
+
+    if (showPublishPlanDialog && plan != null) {
+        val currentContext = LocalContext.current
+        val db = remember(currentContext) { com.example.plannerapp.data.PlannerDatabase.getDatabase(currentContext) }
+        val socialRepo = remember { com.example.plannerapp.data.social.SupabaseSocialRepository() }
+        com.example.plannerapp.ui.social.PublishPlanDialog(
+            plan = plan!!,
+            plannerRepository = com.example.plannerapp.data.PlannerRepository(db.plannerDao()),
+            socialRepository = socialRepo,
+            userDao = db.userDao(),
+            onDismiss = { showPublishPlanDialog = false },
+            onPublished = { postId ->
+                showPublishPlanDialog = false
+                onOpenCommunityDiscussion(postId)
             }
         )
     }
