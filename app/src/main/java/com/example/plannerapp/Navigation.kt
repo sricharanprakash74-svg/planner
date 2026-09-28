@@ -53,6 +53,7 @@ import com.example.plannerapp.data.PlannerRepository
 import com.example.plannerapp.ui.creator.CreatorStudioScreen
 import com.example.plannerapp.ui.navigation.AppScaffoldWrapper
 import com.example.plannerapp.ui.navigation.BottomNavTab
+import com.example.plannerapp.sync.SyncOutboxRepository
 import com.example.plannerapp.ui.create.CreatePlanScreenWrapper
 import com.example.plannerapp.ui.create.CreatePlanViewModel
 import com.example.plannerapp.ui.create.CreatePlanViewModelFactory
@@ -134,7 +135,7 @@ fun MainNavigation() {
     val creditRepository = remember { com.example.plannerapp.credits.CreditRepository(database.creditDao()) }
     val homeViewModel: HomeViewModel = viewModel(factory = HomeViewModelFactory(repository, userDao, context.applicationContext))
     val profileViewModel: ProfileViewModel = viewModel(factory = ProfileViewModelFactory(repository, userDao, socialRepository, creditRepository))
-    val createPlanViewModel: CreatePlanViewModel = viewModel(factory = CreatePlanViewModelFactory(repository, userDao, context.applicationContext, socialRepository))
+    val createPlanViewModel: CreatePlanViewModel = viewModel(factory = CreatePlanViewModelFactory(repository, userDao, context.applicationContext, socialRepository, remember { SyncOutboxRepository(database.plannerDao(), context.applicationContext) }))
     val settingsViewModel: SettingsViewModel = viewModel(factory = SettingsViewModelFactory(userDao))
     val authViewModel: AuthViewModel = viewModel(factory = AuthViewModelFactory(userDao, context.applicationContext))
     val activityLogViewModel: ActivityLogViewModel = viewModel(factory = ActivityLogViewModelFactory(repository, userDao, database.badgeDao()))
