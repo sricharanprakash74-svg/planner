@@ -1,14 +1,23 @@
 package com.example.plannerapp.ui.detail
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.example.plannerapp.ui.components.DurationPickerDialog
 import com.example.plannerapp.ui.components.DurationPickerRow
@@ -28,17 +37,38 @@ fun TaskFormSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var text by remember { mutableStateOf(initialDescription) }
     var durationDays by remember { mutableIntStateOf(initialDurationDays) }
-    var subtasks by remember { mutableStateOf(initialSubtasks) }
+    var subtasks by remember { mutableStateOf(if (initialSubtasks.isEmpty()) listOf("") else initialSubtasks) }
     var showDurationDialog by remember { mutableStateOf(false) }
+
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val subtaskFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+    fun getFocusRequester(index: Int): FocusRequester =
+        subtaskFocusRequesters.getOrPut(index) { FocusRequester() }
+
+    var requestedFocusIndex by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(requestedFocusIndex) {
+        val target = requestedFocusIndex
+        if (target != null) {
+            kotlinx.coroutines.delay(60)
+            try {
+                getFocusRequester(target).requestFocus()
+            } catch (_: Exception) {}
+            requestedFocusIndex = null
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.imePadding()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp)
                 .padding(bottom = 32.dp)
         ) {
@@ -55,7 +85,18 @@ fun TaskFormSheet(
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Task description") },
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(
+                    onNext = {
+                        if (subtasks.isEmpty()) {
+                            subtasks = listOf("")
+                            requestedFocusIndex = 0
+                        } else {
+                            getFocusRequester(0).requestFocus()
+                        }
+                    }
+                )
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -72,6 +113,7 @@ fun TaskFormSheet(
             Spacer(modifier = Modifier.height(8.dp))
 
             subtasks.forEachIndexed { index, subtask ->
+                val isLast = index == subtasks.lastIndex
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(bottom = 8.dp)
@@ -83,10 +125,32 @@ fun TaskFormSheet(
                             newSubtasks[index] = newSubtask
                             subtasks = newSubtasks
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(getFocusRequester(index)),
                         placeholder = { Text("Subtask ${index + 1}") },
                         singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = KeyboardOptions(
+                            imeAction = if (isLast) ImeAction.Done else ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = {
+                                if (index + 1 < subtasks.size) {
+                                    getFocusRequester(index + 1).requestFocus()
+                                }
+                            },
+                            onDone = {
+                                if (subtask.isNotBlank()) {
+                                    val nextIndex = subtasks.size
+                                    subtasks = subtasks + ""
+                                    requestedFocusIndex = nextIndex
+                                } else {
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                }
+                            }
+                        )
                     )
                     if (subtasks.size > 1) {
                         IconButton(
@@ -94,6 +158,7 @@ fun TaskFormSheet(
                                 val newSubtasks = subtasks.toMutableList()
                                 newSubtasks.removeAt(index)
                                 subtasks = newSubtasks
+                                subtaskFocusRequesters.remove(index)
                             }
                         ) {
                             Icon(Icons.Filled.Close, contentDescription = "Remove subtask", tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -102,7 +167,13 @@ fun TaskFormSheet(
                 }
             }
 
-            TextButton(onClick = { subtasks = subtasks + "" }) {
+            TextButton(
+                onClick = {
+                    val nextIndex = subtasks.size
+                    subtasks = subtasks + ""
+                    requestedFocusIndex = nextIndex
+                }
+            ) {
                 Text("+ Add another subtask")
             }
             

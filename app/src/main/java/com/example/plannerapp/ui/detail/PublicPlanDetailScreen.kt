@@ -157,6 +157,52 @@ fun PublicPlanDetailScreen(
                 }
             )
         },
+        bottomBar = {
+            if (uiState.post != null && !uiState.isLoading) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .imePadding()
+                        .navigationBarsPadding(),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = commentInputText,
+                            onValueChange = { commentInputText = it },
+                            placeholder = { Text("Ask a question or share feedback...", fontSize = 13.sp) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            maxLines = 3
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(
+                            onClick = {
+                                if (commentInputText.isNotBlank()) {
+                                    viewModel.addComment(commentInputText.trim())
+                                    commentInputText = ""
+                                }
+                            },
+                            enabled = commentInputText.isNotBlank()
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send Comment",
+                                tint = if (commentInputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            )
+                        }
+                    }
+                }
+            }
+        },
         modifier = modifier
     ) { paddingValues ->
         if (uiState.isLoading) {
@@ -543,39 +589,6 @@ fun PublicPlanDetailScreen(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-            }
-
-            // Comment input box
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = commentInputText,
-                        onValueChange = { commentInputText = it },
-                        placeholder = { Text("Ask a question or share feedback...", fontSize = 13.sp) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp),
-                        maxLines = 3
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(
-                        onClick = {
-                            if (commentInputText.isNotBlank()) {
-                                viewModel.addComment(commentInputText.trim())
-                                commentInputText = ""
-                            }
-                        },
-                        enabled = commentInputText.isNotBlank()
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send Comment",
-                            tint = if (commentInputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                    }
-                }
             }
 
             if (uiState.comments.isEmpty()) {

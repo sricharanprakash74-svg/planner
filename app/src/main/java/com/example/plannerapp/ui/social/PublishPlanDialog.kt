@@ -663,7 +663,10 @@ fun PublishPlanDialog(
                                                     Spacer(modifier = Modifier.height(12.dp))
                                                     Text("Credit Unlock Price", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                                                     Spacer(modifier = Modifier.height(6.dp))
-                                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Row(
+                                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
                                                         listOf(50, 100, 250, 500).forEach { price ->
                                                             FilterChip(
                                                                 selected = selectedCreditPrice == price,

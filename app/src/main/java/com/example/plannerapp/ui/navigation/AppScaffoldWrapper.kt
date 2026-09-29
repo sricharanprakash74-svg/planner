@@ -47,8 +47,8 @@ fun AppScaffoldWrapper(
     Scaffold(
         modifier = modifier
             .fillMaxSize()
-            .safeDrawingPadding()
             .nestedScroll(nestedScrollConnection),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (showBottomBar) {
                 Box(
