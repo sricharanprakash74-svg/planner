@@ -468,12 +468,7 @@ fun MainNavigation() {
                     )
                 }
                 entry<OnboardingPaywall> {
-                    val billingViewModel: BillingViewModel = viewModel(
-                        key = "revenuecat_billing_vm_onboarding",
-                        factory = BillingViewModelFactory(context.applicationContext)
-                    )
-                    com.example.plannerapp.ui.billing.PaywallScreen(
-                        viewModel = billingViewModel,
+                    com.example.plannerapp.ui.onboarding.OnboardingPaywallScreen(
                         onDismiss = {
                             backStack.clear()
                             backStack.add(Home)

@@ -502,7 +502,7 @@ private fun ProUnlockedBanner(onContinue: () -> Unit) {
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Pro Unlocked!",
+                        text = "Pro Unlocked",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer

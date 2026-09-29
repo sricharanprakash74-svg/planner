@@ -41,10 +41,11 @@ fun CreditHubSheet(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    remember {
-        PaymentConfiguration.init(context, "YOUR_STRIPE_PUBLISHABLE_KEY")
-        true
-    }
+    // Stripe PaymentConfiguration is only needed when a real publishable key is supplied.
+    // The credit-pack top-up flow currently uses simulated checkout (CreditViewModel.startStripePurchase),
+    // so skip Stripe SDK initialization to avoid a crash with a placeholder key.
+    @Suppress("UNUSED_EXPRESSION")
+    remember { true }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)

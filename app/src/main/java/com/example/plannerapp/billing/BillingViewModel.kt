@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 import android.app.Activity
 
 /**
- * UI state for the Dummy Paywall screen.
+ * UI state for the RevenueCat Paywall screen.
  */
 data class BillingUiState(
     val isProActive: Boolean = false,
