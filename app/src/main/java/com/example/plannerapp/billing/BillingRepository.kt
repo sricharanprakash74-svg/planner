@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Clean Billing Repository interface supporting RevenueCat with instant, zero-latency local fallback.
@@ -130,7 +131,8 @@ class AppBillingRepository(
 
     private fun handleCustomerInfo(customerInfo: CustomerInfo) {
         val hasPro = customerInfo.entitlements[BillingConfig.ENTITLEMENT_PRO]?.isActive == true ||
-            customerInfo.entitlements[BillingConfig.ENTITLEMENT_PREMIUM]?.isActive == true
+            customerInfo.entitlements[BillingConfig.ENTITLEMENT_PREMIUM]?.isActive == true ||
+            customerInfo.entitlements.active.isNotEmpty()
 
         setProUnlocked(hasPro)
     }
@@ -146,29 +148,31 @@ class AppBillingRepository(
                 ?: _availablePackages.value.firstOrNull()
 
             if (activity != null && Purchases.isConfigured && rcPackage != null) {
-                val params = PurchaseParams.Builder(activity, rcPackage).build()
-                Purchases.sharedInstance.purchase(
-                    params,
-                    object : PurchaseCallback {
-                        override fun onCompleted(storeTransaction: StoreTransaction, customerInfo: CustomerInfo) {
-                            handleCustomerInfo(customerInfo)
-                            val hasPro = _isProActive.value
-                            if (!hasPro) {
-                                Log.w("BillingRepository", "Purchase completed but Pro entitlement is not active in customer info.")
+                withContext(Dispatchers.Main) {
+                    val params = PurchaseParams.Builder(activity, rcPackage).build()
+                    Purchases.sharedInstance.purchase(
+                        params,
+                        object : PurchaseCallback {
+                            override fun onCompleted(storeTransaction: StoreTransaction, customerInfo: CustomerInfo) {
+                                handleCustomerInfo(customerInfo)
+                                val hasPro = _isProActive.value
+                                if (!hasPro) {
+                                    Log.w("BillingRepository", "Purchase completed but Pro entitlement is not active in customer info.")
+                                }
+                                onComplete(hasPro)
                             }
-                            onComplete(hasPro)
-                        }
 
-                        override fun onError(error: PurchasesError, userCancelled: Boolean) {
-                            if (userCancelled || error.code == PurchasesErrorCode.PurchaseCancelledError) {
-                                Log.d("BillingRepository", "Purchase cancelled by user.")
-                            } else {
-                                Log.w("BillingRepository", "Purchase error (${error.code}): ${error.message}")
+                            override fun onError(error: PurchasesError, userCancelled: Boolean) {
+                                if (userCancelled || error.code == PurchasesErrorCode.PurchaseCancelledError) {
+                                    Log.d("BillingRepository", "Purchase cancelled by user.")
+                                } else {
+                                    Log.w("BillingRepository", "Purchase error (${error.code}): ${error.message}")
+                                }
+                                onComplete(false)
                             }
-                            onComplete(false)
                         }
-                    }
-                )
+                    )
+                }
             } else if (BuildConfig.USE_MOCK_BILLING) {
                 // High-speed simulated checkout (500ms) with zero jank (mock mode only)
                 delay(500)
@@ -184,20 +188,23 @@ class AppBillingRepository(
     override fun restorePurchases(onComplete: (Boolean) -> Unit) {
         scope.launch {
             if (Purchases.isConfigured && _availablePackages.value.isNotEmpty()) {
-                Purchases.sharedInstance.restorePurchases(object : ReceiveCustomerInfoCallback {
-                    override fun onReceived(customerInfo: CustomerInfo) {
-                        val hasPro = customerInfo.entitlements[BillingConfig.ENTITLEMENT_PRO]?.isActive == true ||
-                            customerInfo.entitlements[BillingConfig.ENTITLEMENT_PREMIUM]?.isActive == true
-                        setProUnlocked(hasPro)
-                        onComplete(hasPro)
-                    }
+                withContext(Dispatchers.Main) {
+                    Purchases.sharedInstance.restorePurchases(object : ReceiveCustomerInfoCallback {
+                        override fun onReceived(customerInfo: CustomerInfo) {
+                            val hasPro = customerInfo.entitlements[BillingConfig.ENTITLEMENT_PRO]?.isActive == true ||
+                                customerInfo.entitlements[BillingConfig.ENTITLEMENT_PREMIUM]?.isActive == true ||
+                                customerInfo.entitlements.active.isNotEmpty()
+                            setProUnlocked(hasPro)
+                            onComplete(hasPro)
+                        }
 
-                    override fun onError(error: PurchasesError) {
-                        val cached = prefs.getBoolean("is_pro_unlocked", false)
-                        _isProActive.value = cached
-                        onComplete(cached)
-                    }
-                })
+                        override fun onError(error: PurchasesError) {
+                            val cached = prefs.getBoolean("is_pro_unlocked", false)
+                            _isProActive.value = cached
+                            onComplete(cached)
+                        }
+                    })
+                }
             } else if (BuildConfig.USE_MOCK_BILLING) {
                 delay(400)
                 val cached = prefs.getBoolean("is_pro_unlocked", false)
