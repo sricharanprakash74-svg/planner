@@ -1360,7 +1360,7 @@ fun PlannerProDialog(
         },
         confirmButton = {
             Button(onClick = onVisitStoreClick) {
-                Text("Visit Store")
+                Text("Unlock Pro")
             }
         },
         dismissButton = {

@@ -334,7 +334,7 @@ fun MainNavigation() {
                     },
                     onUpgradeProClick = {
                         coroutineScope.launch { drawerState.close() }
-                        showProDialog = true
+                        backStack.add(Paywall)
                     },
                     onSettingsClick = {
                         coroutineScope.launch { drawerState.close() }
@@ -837,7 +837,7 @@ fun MainNavigation() {
                 onDismissRequest = { showProDialog = false },
                 onVisitStoreClick = {
                     showProDialog = false
-                    showCreditHubSheet = true
+                    backStack.add(Paywall)
                 }
             )
         }
