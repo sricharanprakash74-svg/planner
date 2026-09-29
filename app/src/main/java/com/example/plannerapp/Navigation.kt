@@ -459,7 +459,7 @@ fun MainNavigation() {
                 entry<Onboarding> {
                     com.example.plannerapp.ui.onboarding.OnboardingScreenWrapper(
                         onProceedToAuth = {
-                            backStack.add(SignIn)
+                            backStack.add(OnboardingPaywall)
                         },
                         onSignInClick = {
                             backStack.add(SignIn)
