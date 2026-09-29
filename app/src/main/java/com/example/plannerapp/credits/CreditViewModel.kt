@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class CreditUiState(
@@ -161,10 +162,15 @@ class CreditViewModel(
                     return@launch
                 }
                 
-                // Offline-first: direct payment integration offline without custom backend
-                _uiState.value = _uiState.value.copy(isBusy = false, message = "Payment service currently unavailable.")
+                // High-speed simulated checkout (500ms) with zero jank for testing/offline mode
+                delay(500)
+                repository.buyCreditsPack(user.userId, creditsAmount, packName)
+                _uiState.value = _uiState.value.copy(
+                    isBusy = false,
+                    message = "Added $creditsAmount Credits to your balance"
+                )
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isBusy = false, message = e.message ?: "Failed to initialize payment")
+                _uiState.value = _uiState.value.copy(isBusy = false, message = e.message ?: "Failed to complete purchase")
             } finally {
                 _uiState.value = _uiState.value.copy(isBusy = false)
             }

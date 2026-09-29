@@ -68,7 +68,7 @@ fun PaywallScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "PLANNER PRO",
+                            text = "taxent Pro",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -115,6 +115,7 @@ fun PaywallScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .navigationBarsPadding()
                         .padding(horizontal = 20.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -253,7 +254,7 @@ fun PaywallScreen(
                     title = "Annual Plan",
                     price = BillingConfig.PRICE_ANNUAL,
                     subtitle = "$3.33 / month · Billed annually",
-                    savingsBadge = "Save 33% · Best Value",
+                    savingsBadge = "Save 33%",
                     isSelected = uiState.selectedTier == BillingConfig.PACKAGE_ANNUAL,
                     onClick = { viewModel.selectTier(BillingConfig.PACKAGE_ANNUAL) }
                 )
@@ -309,13 +310,14 @@ private fun HeaderCard() {
                 text = "Unlock Pro Access",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Supercharge your habit routines and unlock unrestricted productivity superpowers.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
                 textAlign = TextAlign.Center
             )
         }
@@ -425,29 +427,34 @@ private fun TierCard(
                     onClick = onClick
                 )
                 Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f, fill = false)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         Text(
                             text = title,
                             style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
                         )
                         if (savingsBadge != null) {
-                            Spacer(modifier = Modifier.width(8.dp))
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
+                                shape = RoundedCornerShape(4.dp),
                                 color = MaterialTheme.colorScheme.primaryContainer
                             ) {
                                 Text(
                                     text = savingsBadge,
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    fontWeight = FontWeight.Bold
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
                                 )
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
@@ -455,6 +462,8 @@ private fun TierCard(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.width(8.dp))
 
             Text(
                 text = price,

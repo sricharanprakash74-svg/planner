@@ -409,47 +409,56 @@ fun PlannerStoreContent(
                                         }
                                     }
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Column {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
                                             Text(
                                                 text = "${pack.credits} Credits",
                                                 style = MaterialTheme.typography.titleSmall,
-                                                fontWeight = FontWeight.Bold
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1
                                             )
                                             if (pack.bonusCredits > 0) {
-                                                Spacer(modifier = Modifier.width(6.dp))
                                                 Surface(
-                                                    shape = RoundedCornerShape(6.dp),
+                                                    shape = RoundedCornerShape(4.dp),
                                                     color = MaterialTheme.colorScheme.primaryContainer
                                                 ) {
                                                     Text(
                                                         text = "+${pack.bonusCredits} Extra",
-                                                        style = MaterialTheme.typography.labelSmall,
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                                         color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1
                                                     )
                                                 }
                                             }
                                         }
                                         Spacer(modifier = Modifier.height(2.dp))
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
                                             Text(
                                                 text = pack.name,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1
                                             )
                                             if (pack.tag != null) {
-                                                Spacer(modifier = Modifier.width(6.dp))
                                                 Surface(
-                                                    shape = RoundedCornerShape(6.dp),
+                                                    shape = RoundedCornerShape(4.dp),
                                                     color = if (isPopular) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
                                                 ) {
                                                     Text(
                                                         text = pack.tag,
-                                                        style = MaterialTheme.typography.labelSmall,
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                                                         fontWeight = FontWeight.Bold,
                                                         color = if (isPopular) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                        maxLines = 1
                                                     )
                                                 }
                                             }

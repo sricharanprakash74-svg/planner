@@ -17,6 +17,6 @@ object BillingConfig {
     const val PACKAGE_MONTHLY = "pro_monthly"
     const val PACKAGE_ANNUAL = "pro_annual"
 
-    const val PRICE_MONTHLY = "\$9.99 / month"
+    const val PRICE_MONTHLY = "\$4.99 / month"
     const val PRICE_ANNUAL = "$39.99 / year"
 }
