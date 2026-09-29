@@ -94,9 +94,7 @@ fun AppBottomNavBar(
 
     // Docked minimal container: sits cleanly on the bottom edge with subtle hairline border
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(58.dp),
+        modifier = modifier.fillMaxWidth(),
         shape = androidx.compose.ui.graphics.RectangleShape,
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 1.dp,
@@ -105,12 +103,18 @@ fun AppBottomNavBar(
             MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
         )
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth()
+                .navigationBarsPadding()
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp)
+                    .padding(horizontal = 24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
             // Left Destination: Home (Unified Routines & Community Feed)
             Box(
                 modifier = Modifier.weight(1f),
@@ -195,6 +199,7 @@ fun AppBottomNavBar(
             }
         }
     }
+}
 }
 
 @Composable
