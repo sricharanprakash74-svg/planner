@@ -1,8 +1,18 @@
 package com.example.plannerapp.data.social
 
 import com.example.plannerapp.data.template.TaskTemplateDto
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonPrimitive
 
 // ==============================================================================
 // 0. RELATIONSHIP STATUS MATRIX
@@ -78,13 +88,43 @@ data class PublicPlan(
     val isUsed: Boolean = false
 )
 
+object JsonElementAsStringSerializer : KSerializer<String> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("JsonElementAsString", PrimitiveKind.STRING)
+
+    override fun deserialize(decoder: Decoder): String {
+        val jsonDecoder = decoder as? JsonDecoder
+            ?: return decoder.decodeString()
+        val element = jsonDecoder.decodeJsonElement()
+        return when (element) {
+            is JsonPrimitive -> element.content
+            else -> element.toString()
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: String) {
+        val jsonEncoder = encoder as? JsonEncoder
+        if (jsonEncoder != null) {
+            val element = try {
+                Json.parseToJsonElement(value)
+            } catch (_: Exception) {
+                JsonPrimitive(value)
+            }
+            jsonEncoder.encodeJsonElement(element)
+        } else {
+            encoder.encodeString(value)
+        }
+    }
+}
+
 @Serializable
 data class PlanVersion(
     val id: String = "",
     @SerialName("plan_id") val planId: String,
-    @SerialName("version_tag") val versionTag: String, // e.g. "1.0.0"
+    @SerialName("version_tag") val versionTag: String = "1.0.0", // e.g. "1.0.0"
     val changelog: String = "Initial publication",
-    @SerialName("template_json") val templateJson: String,
+    @Serializable(with = JsonElementAsStringSerializer::class)
+    @SerialName("template_json") val templateJson: String = "{}",
     @SerialName("published_at") val publishedAt: String? = null
 )
 

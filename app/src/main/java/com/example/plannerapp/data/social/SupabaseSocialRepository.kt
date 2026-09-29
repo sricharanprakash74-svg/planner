@@ -318,7 +318,9 @@ class SupabaseSocialRepository(
                 order("published_at", Order.DESCENDING)
             }.decodeList<PlanVersion>()
 
-            if (versions.isEmpty()) {
+            if (versions.isNotEmpty()) {
+                _cachedTemplateJsons[planId] = versions.first().templateJson
+            } else {
                 val cached = _cachedTemplateJsons[planId]
                 if (cached != null) {
                     return@withContext Result.success(
@@ -630,6 +632,9 @@ class SupabaseSocialRepository(
         if (plan != null) {
             val templateJson = getPlanVersions(plan.id).getOrNull()?.firstOrNull()?.templateJson
                 ?: _cachedTemplateJsons[plan.id]
+            if (templateJson != null) {
+                _cachedTemplateJsons[plan.id] = templateJson
+            }
             emit(planToCommunityPost(plan, templateJson = templateJson))
         } else {
             emit(null)
@@ -1509,6 +1514,9 @@ class SupabaseSocialRepository(
         if (!isValidUuid(uid) || !isValidUuid(otherUserId)) {
             return@withContext Result.failure(IllegalArgumentException("Invalid user ID"))
         }
+        if (uid == otherUserId) {
+            return@withContext Result.failure(IllegalArgumentException("You cannot start a conversation with yourself"))
+        }
         try {
             if (!SupabaseConfig.isConfigured) {
                 val existing = _cachedConversations.value.find { it.participant?.id == otherUserId }
@@ -1550,31 +1558,43 @@ class SupabaseSocialRepository(
             }
 
             // No existing conversation found — create a new one
-            val conv = postgrest.from("conversations").insert(buildJsonObject {}) {
-                select()
-            }.decodeSingle<JsonObject>()
-            val convId = conv["id"]?.toString()?.trim('"') ?: UUID.randomUUID().toString()
+            // 1. Try atomic RPC if available on backend
+            val rpcId = try {
+                postgrest.rpc(
+                    function = "get_or_create_conversation",
+                    parameters = buildJsonObject { put("other_user_id", otherUserId) }
+                ).decodeAs<String>().trim('"')
+            } catch (_: Exception) { null }
 
-            // Insert current user first (passes auth.uid() = user_id), then insert other user
-            postgrest.from("conversation_members").insert(
-                buildJsonObject { put("conversation_id", convId); put("user_id", uid) }
-            )
-            try {
+            val convId = if (!rpcId.isNullOrBlank() && isValidUuid(rpcId)) {
+                rpcId
+            } else {
+                // 2. Client-generated UUID without select() to avoid RLS violation before membership is established
+                val newId = UUID.randomUUID().toString()
+                postgrest.from("conversations").insert(buildJsonObject { put("id", newId) })
+
+                // Insert current user first so auth.uid() becomes conversation member
                 postgrest.from("conversation_members").insert(
-                    buildJsonObject { put("conversation_id", convId); put("user_id", otherUserId) }
+                    buildJsonObject { put("conversation_id", newId); put("user_id", uid) }
                 )
-            } catch (_: Exception) {
-                // If other user profile doesn't exist, ensure profile placeholder exists
                 try {
-                    postgrest.from("profiles").upsert(buildJsonObject {
-                        put("id", otherUserId)
-                        put("username", "user_${otherUserId.take(8)}")
-                        put("display_name", "Planner User")
-                    })
                     postgrest.from("conversation_members").insert(
-                        buildJsonObject { put("conversation_id", convId); put("user_id", otherUserId) }
+                        buildJsonObject { put("conversation_id", newId); put("user_id", otherUserId) }
                     )
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                    // If other user profile doesn't exist, ensure profile placeholder exists
+                    try {
+                        postgrest.from("profiles").upsert(buildJsonObject {
+                            put("id", otherUserId)
+                            put("username", "user_${otherUserId.take(8)}")
+                            put("display_name", "Planner User")
+                        })
+                        postgrest.from("conversation_members").insert(
+                            buildJsonObject { put("conversation_id", newId); put("user_id", otherUserId) }
+                        )
+                    } catch (_: Exception) {}
+                }
+                newId
             }
 
             val otherProfile = postgrest.from("profiles").select {
