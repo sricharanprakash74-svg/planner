@@ -18,6 +18,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import com.example.plannerapp.R
+
 @Composable
 fun AuthHeaderSection(
     modifier: Modifier = Modifier
@@ -26,26 +30,19 @@ fun AuthHeaderSection(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // App Brand Icon - Custom rounded square for enterprise look
-        Box(
+        // App Brand Icon - Custom rounded square matching app icon
+        Image(
+            painter = painterResource(id = R.drawable.ic_app_brand),
+            contentDescription = "taxent",
             modifier = Modifier
                 .size(64.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(MaterialTheme.colorScheme.primary),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "P",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimary
-            )
-        }
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Planner",
+            text = "taxent",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground
