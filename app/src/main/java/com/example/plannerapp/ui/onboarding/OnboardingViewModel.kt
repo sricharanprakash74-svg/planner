@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.plannerapp.auth.SupabaseConfig
 import com.example.plannerapp.data.UserDao
+import com.example.plannerapp.data.UserEntity
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -260,6 +261,18 @@ class OnboardingViewModel(
                     interests = _selectedInterests.value.joinToString(","),
                     level = _experienceLevel.value.name
                 )
+            } else {
+                userDao.insertUser(
+                    UserEntity(
+                        displayName = finalDisplayName,
+                        username = finalUsername.ifBlank { null },
+                        avatarUrl = localAvatarPath,
+                        categories = "[]",
+                        interests = _selectedInterests.value.joinToString(","),
+                        experienceLevel = _experienceLevel.value.name,
+                        onboardingComplete = 0
+                    )
+                )
             }
 
             // Remote sync to Supabase profiles
@@ -288,25 +301,46 @@ class OnboardingViewModel(
     fun saveInterests(onSuccess: () -> Unit) {
         viewModelScope.launch {
             val interestsStr = _selectedInterests.value.joinToString(",")
+            val localAvatarPath = prefs.getString("draft_avatar_path", null)
+            val finalName = _displayName.value.ifBlank { prefs.getString("draft_display_name", null)?.takeIf { it.isNotBlank() } ?: "User" }
+            val finalUsername = _username.value.trim().lowercase().ifBlank { prefs.getString("draft_username", null)?.takeIf { it.isNotBlank() } ?: "" }
+
             prefs.edit()
                 .putString("draft_interests", interestsStr)
                 .putString("draft_level", _experienceLevel.value.name)
+                .putBoolean("onboarding_complete", true)
+                .remove("current_step")
                 .apply()
 
-            val user = userDao.getActiveUserOnce()
-            if (user != null) {
+            val activeUser = userDao.getActiveUserOnce()
+            val userId = if (activeUser != null) {
+                userDao.updateProfile(activeUser.userId, finalName, localAvatarPath)
                 userDao.updateOnboardingProfile(
-                    userId = user.userId,
-                    username = _username.value.trim().lowercase(),
+                    userId = activeUser.userId,
+                    username = finalUsername,
                     categories = "[]",
                     interests = interestsStr,
                     level = _experienceLevel.value.name
                 )
+                activeUser.userId
+            } else {
+                userDao.insertUser(
+                    UserEntity(
+                        displayName = finalName,
+                        username = finalUsername.ifBlank { null },
+                        avatarUrl = localAvatarPath,
+                        categories = "[]",
+                        interests = interestsStr,
+                        experienceLevel = _experienceLevel.value.name,
+                        onboardingComplete = 1
+                    )
+                )
             }
+            userDao.markOnboardingComplete(userId)
 
             if (SupabaseConfig.isConfigured) {
                 try {
-                    val uid = SupabaseConfig.auth.currentUserOrNull()?.id ?: user?.cloudUserId
+                    val uid = SupabaseConfig.auth.currentUserOrNull()?.id ?: activeUser?.cloudUserId
                     if (uid != null) {
                         val records = _selectedInterests.value.map { interest ->
                             buildJsonObject {
@@ -316,6 +350,12 @@ class OnboardingViewModel(
                         }
                         if (records.isNotEmpty()) {
                             SupabaseConfig.postgrest.from("user_interests").upsert(records)
+                        }
+                        val payload = buildJsonObject {
+                            put("onboarding_completed", true)
+                        }
+                        SupabaseConfig.postgrest.from("profiles").update(payload) {
+                            filter { eq("id", uid) }
                         }
                     }
                 } catch (e: Exception) {
@@ -351,13 +391,16 @@ class OnboardingViewModel(
         }
     }
 
-    fun finishOnboarding(onFinish: () -> Unit) {
+    fun finishOnboarding(onFinish: () -> Unit = {}) {
         viewModelScope.launch {
             val user = userDao.getActiveUserOnce()
             if (user != null) {
                 userDao.markOnboardingComplete(user.userId)
             }
-            prefs.edit().remove("current_step").apply()
+            prefs.edit()
+                .putBoolean("onboarding_complete", true)
+                .remove("current_step")
+                .apply()
 
             if (SupabaseConfig.isConfigured) {
                 try {

@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.example.plannerapp.theme.PhysicsSpec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -107,8 +108,43 @@ fun MainNavigation() {
 
     LaunchedEffect(Unit) {
         val activeUser = userDao.getActiveUserOnce()
-        initialHasUser = activeUser != null && !activeUser.cloudUserId.isNullOrBlank()
-        initialOnboardingComplete = activeUser?.onboardingComplete == 1
+        val onboardingPrefs = context.getSharedPreferences("onboarding_prefs", android.content.Context.MODE_PRIVATE)
+        val prefsOnboardingDone = onboardingPrefs.getBoolean("onboarding_complete", false)
+        val hasAnyPlans = activeUser?.let { repository.getPlansForUser(it.userId).first().isNotEmpty() } ?: false
+
+        val isOnboardingDone = (activeUser?.onboardingComplete == 1) ||
+                prefsOnboardingDone ||
+                hasAnyPlans ||
+                (activeUser != null && (!activeUser.username.isNullOrBlank() || activeUser.displayName != "Guest"))
+
+        if (isOnboardingDone) {
+            onboardingPrefs.edit()
+                .putBoolean("onboarding_complete", true)
+                .remove("current_step")
+                .apply()
+
+            if (activeUser == null) {
+                val draftName = onboardingPrefs.getString("draft_display_name", null)?.takeIf { it.isNotBlank() } ?: "User"
+                val draftUser = onboardingPrefs.getString("draft_username", null)?.takeIf { it.isNotBlank() }
+                val draftInterests = onboardingPrefs.getString("draft_interests", null) ?: "[]"
+                val draftAvatar = onboardingPrefs.getString("draft_avatar_path", null)
+                userDao.insertUser(
+                    com.example.plannerapp.data.UserEntity(
+                        displayName = draftName,
+                        username = draftUser,
+                        avatarUrl = draftAvatar,
+                        interests = draftInterests,
+                        onboardingComplete = 1
+                    )
+                )
+            } else if (activeUser.onboardingComplete != 1) {
+                userDao.markOnboardingComplete(activeUser.userId)
+            }
+        }
+
+        val resolvedUser = userDao.getActiveUserOnce()
+        initialHasUser = resolvedUser != null
+        initialOnboardingComplete = isOnboardingDone
         isAuthChecked = true
     }
 
@@ -470,6 +506,15 @@ fun MainNavigation() {
                 entry<OnboardingPaywall> {
                     com.example.plannerapp.ui.onboarding.OnboardingPaywallScreen(
                         onDismiss = {
+                            coroutineScope.launch {
+                                val u = userDao.getActiveUserOnce()
+                                if (u != null) userDao.markOnboardingComplete(u.userId)
+                                context.getSharedPreferences("onboarding_prefs", android.content.Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("onboarding_complete", true)
+                                    .remove("current_step")
+                                    .apply()
+                            }
                             backStack.clear()
                             backStack.add(Home)
                             currentTab = BottomNavTab.HOME

@@ -822,217 +822,61 @@ fun HomeScreen(
                             }
                             is Resource.Success -> {
                                 if (filteredPlans.isEmpty()) {
-                                    LazyColumn(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentPadding = PaddingValues(AppDimens.Space16),
-                                        verticalArrangement = Arrangement.spacedBy(AppDimens.Space12)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(AppDimens.Space24),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        // Compact Hero Action Banner
-                                        item {
-                                            Surface(
-                                                shape = RoundedCornerShape(AppDimens.CornerCard),
-                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                                                modifier = Modifier.fillMaxWidth()
+                                        Card(
+                                            shape = RoundedCornerShape(AppDimens.CornerCard),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                modifier = Modifier.padding(AppDimens.Space24)
                                             ) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(AppDimens.Space16),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Surface(
-                                                        shape = CircleShape,
-                                                        color = MaterialTheme.colorScheme.primaryContainer,
-                                                        modifier = Modifier.size(44.dp)
-                                                    ) {
-                                                        Box(contentAlignment = Alignment.Center) {
-                                                            Icon(
-                                                                imageVector = Icons.Outlined.Checklist,
-                                                                contentDescription = null,
-                                                                tint = MaterialTheme.colorScheme.primary,
-                                                                modifier = Modifier.size(24.dp)
-                                                            )
-                                                        }
-                                                    }
-                                                    Spacer(modifier = Modifier.width(AppDimens.Space12))
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Text(
-                                                            text = "Build Daily Habits",
-                                                            style = MaterialTheme.typography.titleMedium,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = MaterialTheme.colorScheme.onSurface
-                                                        )
-                                                        Spacer(modifier = Modifier.height(2.dp))
-                                                        Text(
-                                                            text = "Create a custom routine or tap a starter template below.",
-                                                            style = MaterialTheme.typography.bodySmall,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                        )
-                                                    }
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Button(
-                                                        onClick = { showCreateDialog = true },
-                                                        shape = RoundedCornerShape(AppDimens.CornerCompact),
-                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                                        modifier = Modifier.height(36.dp)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Filled.Add,
-                                                            contentDescription = null,
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(4.dp))
-                                                        Text(
-                                                            text = "New",
-                                                            fontWeight = FontWeight.Bold,
-                                                            style = MaterialTheme.typography.labelMedium
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        // Section Header: Quick Start Templates
-                                        item {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(top = 4.dp, bottom = 2.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Outlined.Bolt,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = "QUICK START TEMPLATES",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    letterSpacing = 0.5.sp
-                                                )
-                                            }
-                                        }
-
-                                        // Template 1: Morning Kickstart
-                                        item {
-                                            QuickStartTemplateCard(
-                                                title = "Morning Kickstart",
-                                                tag = "7 Days",
-                                                description = "Hydration, 10m movement, and top 3 daily focus priorities.",
-                                                icon = Icons.Outlined.WbSunny,
-                                                onUse = {
-                                                    viewModel.createQuickPlan(
-                                                        title = "Morning Kickstart",
-                                                        description = "Hydration, 10m movement, and top 3 daily focus priorities.",
-                                                        durationDays = 7,
-                                                        onCreated = { newId -> onPlanClick(newId) }
-                                                    )
-                                                }
-                                            )
-                                        }
-
-                                        // Template 2: Deep Work Sprint
-                                        item {
-                                            QuickStartTemplateCard(
-                                                title = "Deep Work Sprint",
-                                                tag = "14 Days",
-                                                description = "90-minute uninterrupted focus blocks, inbox zero, and shutdown.",
-                                                icon = Icons.Outlined.Timer,
-                                                onUse = {
-                                                    viewModel.createQuickPlan(
-                                                        title = "Deep Work Sprint",
-                                                        description = "90-minute uninterrupted focus blocks, inbox zero, and shutdown.",
-                                                        durationDays = 14,
-                                                        onCreated = { newId -> onPlanClick(newId) }
-                                                    )
-                                                }
-                                            )
-                                        }
-
-                                        // Template 3: Evening Wind-Down
-                                        item {
-                                            QuickStartTemplateCard(
-                                                title = "Evening Wind-Down",
-                                                tag = "7 Days",
-                                                description = "Digital detox 30m before sleep, read 15 pages, and desk prep.",
-                                                icon = Icons.Outlined.Bedtime,
-                                                onUse = {
-                                                    viewModel.createQuickPlan(
-                                                        title = "Evening Wind-Down",
-                                                        description = "Digital detox 30m before sleep, read 15 pages, and desk prep.",
-                                                        durationDays = 7,
-                                                        onCreated = { newId -> onPlanClick(newId) }
-                                                    )
-                                                }
-                                            )
-                                        }
-
-                                        // Section: Explore Community Routines Shortcut
-                                        if (isOnline) {
-                                            item {
                                                 Surface(
-                                                    shape = RoundedCornerShape(12.dp),
-                                                    color = MaterialTheme.colorScheme.surface,
-                                                    tonalElevation = 1.dp,
-                                                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(top = 4.dp)
-                                                        .clickable {
-                                                            selectedFeedTab = HomeFeedTab.FOR_YOU
-                                                        }
+                                                    shape = CircleShape,
+                                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                                    modifier = Modifier.size(64.dp)
                                                 ) {
-                                                    Row(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(14.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.SpaceBetween
-                                                    ) {
-                                                        Row(
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            modifier = Modifier.weight(1f)
-                                                        ) {
-                                                            Surface(
-                                                                shape = CircleShape,
-                                                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                                                modifier = Modifier.size(36.dp)
-                                                            ) {
-                                                                Box(contentAlignment = Alignment.Center) {
-                                                                    Icon(
-                                                                        imageVector = Icons.Outlined.Explore,
-                                                                        contentDescription = null,
-                                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                                        modifier = Modifier.size(20.dp)
-                                                                    )
-                                                                }
-                                                            }
-                                                            Spacer(modifier = Modifier.width(12.dp))
-                                                            Column {
-                                                                Text(
-                                                                    text = "Explore Community Routines",
-                                                                    style = MaterialTheme.typography.titleSmall,
-                                                                    fontWeight = FontWeight.SemiBold
-                                                                )
-                                                                Text(
-                                                                    text = "Discover proven habits and plans from creators",
-                                                                    style = MaterialTheme.typography.bodySmall,
-                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                                )
-                                                            }
-                                                        }
+                                                    Box(contentAlignment = Alignment.Center) {
                                                         Icon(
-                                                            imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
-                                                            contentDescription = "Explore",
-                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                            modifier = Modifier.size(18.dp)
+                                                            imageVector = Icons.Outlined.Checklist,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(AppDimens.IconSizeXl)
                                                         )
                                                     }
+                                                }
+                                                Spacer(modifier = Modifier.height(AppDimens.Space16))
+                                                Text(
+                                                    text = "Your Journey Starts Here",
+                                                    style = MaterialTheme.typography.titleLarge,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.height(AppDimens.Space8))
+                                                Text(
+                                                    text = "Create your first routine, challenge, or project plan to start building unstoppable daily habits.",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                                Spacer(modifier = Modifier.height(AppDimens.Space20))
+                                                Button(
+                                                    onClick = { showCreateDialog = true },
+                                                    shape = RoundedCornerShape(AppDimens.CornerCompact)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Add,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(AppDimens.IconSizeMd)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(AppDimens.Space8))
+                                                    Text("Create Your First Plan", fontWeight = FontWeight.Bold)
                                                 }
                                             }
                                         }
@@ -1564,90 +1408,3 @@ fun ProBenefitRow(
     }
 }
 
-@Composable
-private fun QuickStartTemplateCard(
-    title: String,
-    tag: String,
-    description: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onUse: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onUse() }
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                modifier = Modifier.size(38.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Text(
-                            text = tag,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            FilledTonalButton(
-                onClick = onUse,
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                modifier = Modifier.height(30.dp)
-            ) {
-                Text(
-                    text = "Start",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
