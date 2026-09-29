@@ -76,6 +76,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import com.example.plannerapp.ui.components.CommunityPostSkeleton
 import com.example.plannerapp.data.PlanEntity
 import com.example.plannerapp.data.PlannerRepository
 import com.example.plannerapp.data.UserDao
@@ -96,9 +100,9 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 enum class HomeFeedTab(val label: String) {
+    MY_PLANS("My Routines"),
     FOR_YOU("For You"),
     FOLLOWING("Following"),
-    MY_PLANS("My Plans"),
     POPULAR("Popular"),
     RECENT("Recent")
 }
@@ -212,9 +216,9 @@ fun HomeScreen(
 
     val allPlans = (uiStateResource as? Resource.Success)?.data?.plans ?: emptyList()
 
-    val filteredPlans = remember(allPlans, searchQuery) {
+    val localMatches = remember(allPlans, searchQuery) {
         if (searchQuery.isBlank()) {
-            allPlans
+            emptyList()
         } else {
             allPlans.filter {
                 it.heading.contains(searchQuery, ignoreCase = true) ||
@@ -222,6 +226,8 @@ fun HomeScreen(
             }
         }
     }
+
+    val filteredPlans = remember(allPlans) { allPlans }
 
     val pinnedPlans = remember(allPlans) {
         allPlans.filter { it.isPinned }
@@ -386,7 +392,7 @@ fun HomeScreen(
                                     }
                                 }
 
-                                // Navigation Icons (Credits, Bell, Mail - visible when not active)
+                                // Navigation Icons (Bell, Mail - visible when not active)
                                 AnimatedVisibility(
                                     visible = !isSearchActive,
                                     enter = fadeIn(tween(250)) + expandHorizontally(tween(250, easing = FastOutSlowInEasing)),
@@ -397,43 +403,6 @@ fun HomeScreen(
                                         modifier = Modifier.padding(start = 6.dp)
                                     ) {
                                         if (isOnline) {
-                                            val creditInteraction = remember { MutableInteractionSource() }
-                                            val isCreditPressed by creditInteraction.collectIsPressedAsState()
-                                            val creditScale by animateFloatAsState(
-                                                targetValue = if (isCreditPressed) 0.92f else 1f,
-                                                animationSpec = if (isCreditPressed) PhysicsSpec.PressDown else PhysicsSpec.PressRelease,
-                                                label = "credit_pill_scale"
-                                            )
-
-                                            Surface(
-                                                shape = RoundedCornerShape(20.dp),
-                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                                border = BorderStroke(
-                                                    1.dp,
-                                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                                                ),
-                                                modifier = Modifier
-                                                    .graphicsLayer {
-                                                        scaleX = creditScale
-                                                        scaleY = creditScale
-                                                    }
-                                                    .clip(RoundedCornerShape(20.dp))
-                                                    .clickable(
-                                                        interactionSource = creditInteraction,
-                                                        indication = null
-                                                    ) { showCreditHubSheet = true }
-                                            ) {
-                                                Text(
-                                                    text = "$creditBalance cr",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                                )
-                                            }
-
-                                            Spacer(modifier = Modifier.width(4.dp))
-
                                             val notifInteraction = remember { MutableInteractionSource() }
                                             val isNotifPressed by notifInteraction.collectIsPressedAsState()
                                             val notifScale by animateFloatAsState(
@@ -505,7 +474,7 @@ fun HomeScreen(
                                             isSearchActive = false
                                             focusManager.clearFocus()
                                             keyboardController?.hide()
-                                            if (isOnline && activeFeedTab != HomeFeedTab.MY_PLANS) {
+                                            if (isOnline) {
                                                 feedViewModel?.onSearchQueryChanged("")
                                             }
                                         },
@@ -533,147 +502,308 @@ fun HomeScreen(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             containerColor = MaterialTheme.colorScheme.background
         ) { paddingValues ->
+            var isMyPlansRefreshing by remember { mutableStateOf(false) }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                if (isOnline && !isSearchActive) {
-                    Surface(
+                // Architectural Top-to-Bottom Flow: Header -> Sliding Tabs -> Content
+                if (isOnline && !isSearchActive && searchQuery.isBlank()) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp, vertical = 6.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(3.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            val tabHaptic = LocalHapticFeedback.current
-                            HomeFeedTab.entries.forEach { tab ->
-                                val isSelected = activeFeedTab == tab
-                                val tabInteraction = remember { MutableInteractionSource() }
-                                val isTabPressed by tabInteraction.collectIsPressedAsState()
-                                val tabScale by animateFloatAsState(
-                                    targetValue = if (isTabPressed) 0.92f else 1f,
-                                    animationSpec = if (isTabPressed) PhysicsSpec.PressDown else PhysicsSpec.PressRelease,
-                                    label = "tab_scale_${tab.name}"
-                                )
-                                val tabBgColor by androidx.compose.animation.animateColorAsState(
-                                    targetValue = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
-                                    animationSpec = androidx.compose.animation.core.tween(180),
-                                    label = "tab_bg_${tab.name}"
-                                )
-                                val tabTextColor by androidx.compose.animation.animateColorAsState(
-                                    targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    animationSpec = androidx.compose.animation.core.tween(180),
-                                    label = "tab_text_${tab.name}"
-                                )
+                        val tabHaptic = LocalHapticFeedback.current
+                        HomeFeedTab.entries.forEach { tab ->
+                            val isSelected = activeFeedTab == tab
+                            val tabInteraction = remember { MutableInteractionSource() }
+                            val isTabPressed by tabInteraction.collectIsPressedAsState()
+                            val tabScale by animateFloatAsState(
+                                targetValue = if (isTabPressed) 0.94f else 1f,
+                                animationSpec = if (isTabPressed) PhysicsSpec.PressDown else PhysicsSpec.PressRelease,
+                                label = "tab_scale_${tab.name}"
+                            )
+                            val tabBgColor by androidx.compose.animation.animateColorAsState(
+                                targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                animationSpec = tween(180),
+                                label = "tab_bg_${tab.name}"
+                            )
+                            val tabTextColor by androidx.compose.animation.animateColorAsState(
+                                targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                animationSpec = tween(180),
+                                label = "tab_text_${tab.name}"
+                            )
 
-                                Surface(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(32.dp)
-                                        .graphicsLayer {
-                                            scaleX = tabScale
-                                            scaleY = tabScale
-                                        }
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable(
-                                            interactionSource = tabInteraction,
-                                            indication = null
-                                        ) {
-                                            tabHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            selectedFeedTab = tab
-                                        },
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = tabBgColor,
-                                    shadowElevation = if (isSelected) 1.5.dp else 0.dp,
-                                    border = if (isSelected) BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)) else null
-                                ) {
-                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                        Text(
-                                            text = tab.label,
-                                            style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.5.sp),
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = tabTextColor
-                                        )
+                            Surface(
+                                modifier = Modifier
+                                    .height(34.dp)
+                                    .graphicsLayer {
+                                        scaleX = tabScale
+                                        scaleY = tabScale
                                     }
+                                    .clip(RoundedCornerShape(17.dp))
+                                    .clickable(
+                                        interactionSource = tabInteraction,
+                                        indication = null
+                                    ) {
+                                        tabHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        selectedFeedTab = tab
+                                    },
+                                shape = RoundedCornerShape(17.dp),
+                                color = tabBgColor,
+                                shadowElevation = if (isSelected) 1.dp else 0.dp,
+                                border = if (isSelected) null else BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = tab.label,
+                                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.5.sp),
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = tabTextColor,
+                                        maxLines = 1
+                                    )
                                 }
                             }
                         }
                     }
                 }
 
-                if (activeFeedTab == HomeFeedTab.MY_PLANS || !isOnline) {
-                when (val state = uiStateResource) {
-                    is Resource.Loading -> {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
+                if (searchQuery.isNotBlank()) {
+                    // ── UNIVERSAL SEARCH (My Routines, Community Plans, Creators) ──
+                    val searchResults = feedUiState.searchResults
+                    val hasLocal = localMatches.isNotEmpty()
+                    val hasCommunityPlans = isOnline && searchResults.plans.isNotEmpty()
+                    val hasCreators = isOnline && searchResults.creators.isNotEmpty()
+                    val isSearching = isOnline && feedUiState.isSearching
+
+                    if (!hasLocal && !hasCommunityPlans && !hasCreators) {
+                        if (isSearching) {
+                            LazyColumn(
+                                contentPadding = PaddingValues(AppDimens.Space16),
+                                verticalArrangement = Arrangement.spacedBy(AppDimens.Space12),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                items(3) {
+                                    CommunityPostSkeleton()
+                                }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Search,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "No results matching \"$searchQuery\"",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Try searching for a different routine, creator, or keyword.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    OutlinedButton(onClick = {
+                                        searchQuery = ""
+                                        if (isOnline) feedViewModel?.onSearchQueryChanged("")
+                                    }) {
+                                        Text("Clear Search")
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        LazyColumn(
                             contentPadding = PaddingValues(AppDimens.Space16),
-                            horizontalArrangement = Arrangement.spacedBy(AppDimens.Space16),
-                            verticalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                            verticalArrangement = Arrangement.spacedBy(AppDimens.Space12),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(4) { index -> 
-                                com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
-                                    PlanCardSkeleton() 
+                            // Section 1: My Routines
+                            if (hasLocal) {
+                                item(key = "header_local_plans") {
+                                    Text(
+                                        text = "MY ROUTINES (${localMatches.size})",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                                itemsIndexed(localMatches, key = { _, plan -> "local_plan_${plan.planId}" }) { index, plan ->
+                                    com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = MaterialTheme.colorScheme.surface,
+                                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { onPlanClick(plan.planId) }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(14.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                                    modifier = Modifier.size(38.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Outlined.Folder,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = plan.heading,
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    if (plan.description.isNotBlank()) {
+                                                        Text(
+                                                            text = plan.description,
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
+                                                    contentDescription = "Open",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Section 2: Community Plans
+                            if (hasCommunityPlans) {
+                                item(key = "header_community_plans") {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "COMMUNITY PLANS (${searchResults.plans.size})",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                                itemsIndexed(searchResults.plans, key = { _, plan -> "search_plan_${plan.postId}" }) { index, post ->
+                                    com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                                        SocialFeedPostCard(
+                                            post = post,
+                                            onUpvote = { feedViewModel?.onVote(post.postId, VoteType.UP) },
+                                            onDownvote = { feedViewModel?.onVote(post.postId, VoteType.DOWN) },
+                                            onSaveToggle = { feedViewModel?.onToggleSave(post.postId) },
+                                            onClick = { onPostClick(post.postId) },
+                                            onCreatorClick = { onCreatorClick(post.author.userId) }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Section 3: Creators & People
+                            if (hasCreators) {
+                                item(key = "header_creators") {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "CREATORS & PEOPLE (${searchResults.creators.size})",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                                itemsIndexed(searchResults.creators, key = { _, user -> "search_user_${user.userId}" }) { index, creator ->
+                                    com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                                        CreatorSearchResultCard(
+                                            creator = creator,
+                                            isFollowing = feedUiState.followingUserIds.contains(creator.userId),
+                                            onToggleFollow = { feedViewModel?.onToggleFollow(creator.userId) },
+                                            onClick = { onCreatorClick(creator.userId) }
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                    is Resource.Error -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("Error: ${state.message}", color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                    is Resource.Success -> {
-                        if (filteredPlans.isEmpty()) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(24.dp), 
-                                    contentAlignment = Alignment.Center
+                } else if (activeFeedTab == HomeFeedTab.MY_PLANS || !isOnline) {
+                    PullToRefreshBox(
+                        isRefreshing = isMyPlansRefreshing,
+                        onRefresh = {
+                            coroutineScope.launch {
+                                isMyPlansRefreshing = true
+                                kotlinx.coroutines.delay(500)
+                                isMyPlansRefreshing = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        when (val state = uiStateResource) {
+                            is Resource.Loading -> {
+                                LazyVerticalGrid(
+                                    columns = GridCells.Fixed(2),
+                                    contentPadding = PaddingValues(AppDimens.Space16),
+                                    horizontalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                                    verticalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                                    modifier = Modifier.fillMaxSize()
                                 ) {
-                                    if (searchQuery.isNotBlank()) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Search,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                                modifier = Modifier.size(48.dp)
-                                            )
-                                            Spacer(modifier = Modifier.height(12.dp))
-                                            Text(
-                                                text = "No plans matching \"$searchQuery\"",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text(
-                                                text = "Try searching for another keyword or check community plans.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                textAlign = TextAlign.Center
-                                            )
-                                            Spacer(modifier = Modifier.height(12.dp))
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                OutlinedButton(onClick = { searchQuery = "" }) {
-                                                    Text("Clear Search")
-                                                }
-                                                if (isOnline) {
-                                                    Button(onClick = { selectedFeedTab = HomeFeedTab.FOR_YOU }) {
-                                                        Text("Search Community")
-                                                    }
-                                                }
-                                            }
+                                    items(4) { index -> 
+                                        com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                                            PlanCardSkeleton() 
                                         }
-                                    } else {
+                                    }
+                                }
+                            }
+                            is Resource.Error -> {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("Error: ${state.message}", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                            is Resource.Success -> {
+                                if (filteredPlans.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(24.dp), 
+                                        contentAlignment = Alignment.Center
+                                    ) {
                                         Card(
                                             shape = RoundedCornerShape(AppDimens.CornerCard),
                                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
@@ -727,100 +857,102 @@ fun HomeScreen(
                                             }
                                         }
                                     }
-                                }
-                            } else {
-                                LazyVerticalGrid(
-                                    columns = GridCells.Fixed(2),
-                                    contentPadding = PaddingValues(AppDimens.Space16),
-                                    horizontalArrangement = Arrangement.spacedBy(AppDimens.Space16),
-                                    verticalArrangement = Arrangement.spacedBy(AppDimens.Space16)
-                                ) {
-                                    itemsIndexed(filteredPlans, key = { _, it -> it.planId }) { index, plan ->
-                                        val isSelected = selectedPlanIds.contains(plan.planId)
-                                        com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
-                                            PlanFolderCard(
-                                                plan = plan, 
-                                                isSelectionMode = isSelectionMode,
-                                                isSelected = isSelected,
-                                                onClick = { 
-                                                    if (isSelectionMode) {
-                                                        selectedPlanIds = if (isSelected) selectedPlanIds - plan.planId else selectedPlanIds + plan.planId
-                                                    } else {
-                                                        onPlanClick(plan.planId)
-                                                    }
-                                                },
-                                                onLongClick = {
-                                                    if (isSelectionMode) {
-                                                        selectedPlanIds = if (isSelected) selectedPlanIds - plan.planId else selectedPlanIds + plan.planId
-                                                    } else {
-                                                        planForActions = plan
-                                                    }
-                                                },
-                                                onEdit = { planToEdit = plan },
-                                                onDelete = { planToDelete = plan },
-                                                onInfo = { planForInfo = plan },
-                                                onTogglePin = { viewModel.togglePinPlan(plan.planId, !plan.isPinned) }
-                                            )
+                                } else {
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Fixed(2),
+                                        contentPadding = PaddingValues(AppDimens.Space16),
+                                        horizontalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                                        verticalArrangement = Arrangement.spacedBy(AppDimens.Space16)
+                                    ) {
+                                        itemsIndexed(filteredPlans, key = { _, it -> it.planId }) { index, plan ->
+                                            val isSelected = selectedPlanIds.contains(plan.planId)
+                                            com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                                                PlanFolderCard(
+                                                    plan = plan, 
+                                                    isSelectionMode = isSelectionMode,
+                                                    isSelected = isSelected,
+                                                    onClick = { 
+                                                        if (isSelectionMode) {
+                                                            selectedPlanIds = if (isSelected) selectedPlanIds - plan.planId else selectedPlanIds + plan.planId
+                                                        } else {
+                                                            onPlanClick(plan.planId)
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        if (isSelectionMode) {
+                                                            selectedPlanIds = if (isSelected) selectedPlanIds - plan.planId else selectedPlanIds + plan.planId
+                                                        } else {
+                                                            planForActions = plan
+                                                        }
+                                                    },
+                                                    onEdit = { planToEdit = plan },
+                                                    onDelete = { planToDelete = plan },
+                                                    onInfo = { planForInfo = plan },
+                                                    onTogglePin = { viewModel.togglePinPlan(plan.planId, !plan.isPinned) }
+                                                )
+                                            }
                                         }
-                                    }
 
-                                    if (isOnline) {
-                                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                                            Surface(
-                                                shape = RoundedCornerShape(12.dp),
-                                                color = MaterialTheme.colorScheme.surface,
-                                                tonalElevation = 1.dp,
-                                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 8.dp)
-                                                    .clickable { onExploreClick("") }
-                                            ) {
-                                                Row(
+                                        if (isOnline) {
+                                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = MaterialTheme.colorScheme.surface,
+                                                    tonalElevation = 1.dp,
+                                                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .padding(14.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                        .padding(vertical = 8.dp)
+                                                        .clickable {
+                                                            selectedFeedTab = HomeFeedTab.FOR_YOU
+                                                        }
                                                 ) {
                                                     Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(14.dp),
                                                         verticalAlignment = Alignment.CenterVertically,
-                                                        modifier = Modifier.weight(1f)
+                                                        horizontalArrangement = Arrangement.SpaceBetween
                                                     ) {
-                                                        Surface(
-                                                            shape = CircleShape,
-                                                            color = MaterialTheme.colorScheme.primaryContainer,
-                                                            modifier = Modifier.size(36.dp)
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            modifier = Modifier.weight(1f)
                                                         ) {
-                                                            Box(contentAlignment = Alignment.Center) {
-                                                                Icon(
-                                                                    imageVector = Icons.Outlined.Explore,
-                                                                    contentDescription = null,
-                                                                    tint = MaterialTheme.colorScheme.primary,
-                                                                    modifier = Modifier.size(20.dp)
+                                                            Surface(
+                                                                shape = CircleShape,
+                                                                color = MaterialTheme.colorScheme.primaryContainer,
+                                                                modifier = Modifier.size(36.dp)
+                                                            ) {
+                                                                Box(contentAlignment = Alignment.Center) {
+                                                                    Icon(
+                                                                        imageVector = Icons.Outlined.Explore,
+                                                                        contentDescription = null,
+                                                                        tint = MaterialTheme.colorScheme.primary,
+                                                                        modifier = Modifier.size(20.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                            Spacer(modifier = Modifier.width(12.dp))
+                                                            Column {
+                                                                Text(
+                                                                    text = "Explore Community Routines",
+                                                                    style = MaterialTheme.typography.titleSmall,
+                                                                    fontWeight = FontWeight.SemiBold
+                                                                )
+                                                                Text(
+                                                                    text = "Discover proven habits and plans from creators",
+                                                                    style = MaterialTheme.typography.bodySmall,
+                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                                 )
                                                             }
                                                         }
-                                                        Spacer(modifier = Modifier.width(12.dp))
-                                                        Column {
-                                                            Text(
-                                                                text = "Explore Community Routines",
-                                                                style = MaterialTheme.typography.titleSmall,
-                                                                fontWeight = FontWeight.SemiBold
-                                                            )
-                                                            Text(
-                                                                text = "Discover proven habits and plans from creators",
-                                                                style = MaterialTheme.typography.bodySmall,
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                            )
-                                                        }
+                                                        Icon(
+                                                            imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
+                                                            contentDescription = "Explore",
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
                                                     }
-                                                    Icon(
-                                                        imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
-                                                        contentDescription = "Explore",
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        modifier = Modifier.size(18.dp)
-                                                    )
                                                 }
                                             }
                                         }
@@ -830,12 +962,25 @@ fun HomeScreen(
                         }
                     }
                 } else {
-                    if (feedUiState.isSearching) {
-                        val searchResults = feedUiState.searchResults
-                        val hasPlans = searchResults.plans.isNotEmpty()
-                        val hasUsers = searchResults.creators.isNotEmpty()
-
-                        if (!hasPlans && !hasUsers) {
+                    // ── COMMUNITY FEED WITH PULL-TO-REFRESH & SKELETON LOADERS ──
+                    PullToRefreshBox(
+                        isRefreshing = feedUiState.isRefreshing,
+                        onRefresh = {
+                            feedViewModel?.refresh()
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        if (feedUiState.isLoading) {
+                            LazyColumn(
+                                contentPadding = PaddingValues(AppDimens.Space16),
+                                verticalArrangement = Arrangement.spacedBy(AppDimens.Space16),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                items(4) {
+                                    CommunityPostSkeleton()
+                                }
+                            }
+                        } else if (feedUiState.posts.isEmpty()) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -844,113 +989,39 @@ fun HomeScreen(
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(
-                                        imageVector = Icons.Outlined.SearchOff,
+                                        imageVector = Icons.Outlined.Explore,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                         modifier = Modifier.size(48.dp)
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        text = "No results found for \"$searchQuery\"",
+                                        text = if (activeFeedTab == HomeFeedTab.FOLLOWING)
+                                            "You are not following any creators yet. Follow creators to see their public plans here."
+                                        else "No community posts yet",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center
                                     )
                                 }
                             }
                         } else {
                             LazyColumn(
                                 contentPadding = PaddingValues(AppDimens.Space16),
-                                verticalArrangement = Arrangement.spacedBy(AppDimens.Space12),
+                                verticalArrangement = Arrangement.spacedBy(AppDimens.Space16),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                if (hasPlans) {
-                                    item(key = "header_plans") {
-                                        Text(
-                                            text = "PLANS (${searchResults.plans.size})",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            letterSpacing = 0.5.sp
+                                itemsIndexed(feedUiState.posts, key = { _, post -> post.postId }) { index, post ->
+                                    com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
+                                        SocialFeedPostCard(
+                                            post = post,
+                                            onUpvote = { feedViewModel?.onVote(post.postId, VoteType.UP) },
+                                            onDownvote = { feedViewModel?.onVote(post.postId, VoteType.DOWN) },
+                                            onSaveToggle = { feedViewModel?.onToggleSave(post.postId) },
+                                            onClick = { onPostClick(post.postId) },
+                                            onCreatorClick = { onCreatorClick(post.author.userId) }
                                         )
                                     }
-                                    itemsIndexed(searchResults.plans, key = { _, plan -> "search_plan_${plan.postId}" }) { index, post ->
-                                        com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
-                                            SocialFeedPostCard(
-                                                post = post,
-                                                onUpvote = { feedViewModel?.onVote(post.postId, VoteType.UP) },
-                                                onDownvote = { feedViewModel?.onVote(post.postId, VoteType.DOWN) },
-                                                onSaveToggle = { feedViewModel?.onToggleSave(post.postId) },
-                                                onClick = { onPostClick(post.postId) },
-                                                onCreatorClick = { onCreatorClick(post.author.userId) }
-                                            )
-                                        }
-                                    }
-                                }
-                                if (hasUsers) {
-                                    item(key = "header_users") {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = "USERS (${searchResults.creators.size})",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            letterSpacing = 0.5.sp
-                                        )
-                                    }
-                                    itemsIndexed(searchResults.creators, key = { _, user -> "search_user_${user.userId}" }) { index, creator ->
-                                        com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
-                                            CreatorSearchResultCard(
-                                                creator = creator,
-                                                isFollowing = feedUiState.followingUserIds.contains(creator.userId),
-                                                onToggleFollow = { feedViewModel?.onToggleFollow(creator.userId) },
-                                                onClick = { onCreatorClick(creator.userId) }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else if (feedUiState.posts.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Explore,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(48.dp)
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = if (activeFeedTab == HomeFeedTab.FOLLOWING)
-                                        "You are not following any creators yet. Follow creators to see their public plans here."
-                                    else "No community posts yet",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-                    } else {
-                        LazyColumn(
-                            contentPadding = PaddingValues(AppDimens.Space16),
-                            verticalArrangement = Arrangement.spacedBy(AppDimens.Space16),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            itemsIndexed(feedUiState.posts, key = { _, post -> post.postId }) { index, post ->
-                                com.example.plannerapp.ui.components.StaggeredEntrance(index = index) {
-                                    SocialFeedPostCard(
-                                        post = post,
-                                        onUpvote = { feedViewModel?.onVote(post.postId, VoteType.UP) },
-                                        onDownvote = { feedViewModel?.onVote(post.postId, VoteType.DOWN) },
-                                        onSaveToggle = { feedViewModel?.onToggleSave(post.postId) },
-                                        onClick = { onPostClick(post.postId) },
-                                        onCreatorClick = { onCreatorClick(post.author.userId) }
-                                    )
                                 }
                             }
                         }

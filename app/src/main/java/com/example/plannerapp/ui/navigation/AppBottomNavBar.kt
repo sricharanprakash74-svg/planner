@@ -43,8 +43,7 @@ enum class BottomNavTab(
     val unselectedIcon: ImageVector,
     val label: String
 ) {
-    HOME(Icons.Filled.Home, Icons.Outlined.Home, "Today"),
-    EXPLORE(Icons.Filled.Explore, Icons.Outlined.Explore, "Explore"),
+    HOME(Icons.Filled.Home, Icons.Outlined.Home, "Home"),
     PROFILE(Icons.Filled.Person, Icons.Outlined.Person, "Profile");
 
     val contentDescription: String get() = label
@@ -109,29 +108,23 @@ fun AppBottomNavBar(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left Group: Today & Explore
-            Row(
+            // Left Destination: Home (Unified Routines & Community Feed)
+            Box(
                 modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
+                contentAlignment = Alignment.Center
             ) {
                 NavTabItem(
                     selected = currentTab == BottomNavTab.HOME,
                     selectedIcon = Icons.Filled.Home,
                     unselectedIcon = Icons.Outlined.Home,
-                    contentDescription = "Today",
-                    onClick = { onTabSelected(BottomNavTab.HOME) }
-                )
-
-                NavTabItem(
-                    selected = currentTab == BottomNavTab.EXPLORE,
-                    selectedIcon = Icons.Filled.Explore,
-                    unselectedIcon = Icons.Outlined.Explore,
-                    contentDescription = "Explore",
-                    onClick = { onTabSelected(BottomNavTab.EXPLORE) }
+                    contentDescription = "Home",
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onTabSelected(BottomNavTab.HOME)
+                    }
                 )
             }
 
@@ -163,7 +156,7 @@ fun AppBottomNavBar(
                 }
             }
 
-            // Right Group: Profile
+            // Right Destination: Profile
             Box(
                 modifier = Modifier.weight(1f),
                 contentAlignment = Alignment.Center
@@ -173,7 +166,10 @@ fun AppBottomNavBar(
                     selectedIcon = Icons.Filled.Person,
                     unselectedIcon = Icons.Outlined.Person,
                     contentDescription = "Profile",
-                    onClick = { onTabSelected(BottomNavTab.PROFILE) },
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onTabSelected(BottomNavTab.PROFILE)
+                    },
                     customContent = if (avatarBitmap != null) {
                         {
                             val isProfileSelected = currentTab == BottomNavTab.PROFILE

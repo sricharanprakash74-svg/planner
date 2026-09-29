@@ -94,7 +94,10 @@ fun ChatScreen(
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 2.dp,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+                    .navigationBarsPadding()
             ) {
                 Row(
                     modifier = Modifier
@@ -130,8 +133,9 @@ fun ChatScreen(
                 }
             }
         },
+        contentWindowInsets = WindowInsets.statusBars,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        modifier = modifier
+        modifier = modifier.fillMaxSize()
     ) { paddingValues ->
         if (uiState.isLoading) {
             Box(

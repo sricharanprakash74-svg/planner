@@ -177,7 +177,6 @@ fun MainNavigation() {
         when (currentKey) {
             Home -> currentTab = BottomNavTab.HOME
             Profile -> currentTab = BottomNavTab.PROFILE
-            is Explore -> currentTab = BottomNavTab.EXPLORE
             else -> { /* Subpages keep their parent tab active */ }
         }
     }
@@ -303,7 +302,7 @@ fun MainNavigation() {
     ) {
         ModalNavigationDrawer(
             drawerState = drawerState,
-            gesturesEnabled = (currentKey == Home || currentKey is Explore) && currentTab == BottomNavTab.HOME,
+            gesturesEnabled = currentKey == Home && currentTab == BottomNavTab.HOME,
             drawerContent = {
                 com.example.plannerapp.ui.navigation.AppNavDrawerSheet(
                     isCreator = activeUser?.isCreator == true,
@@ -322,7 +321,8 @@ fun MainNavigation() {
                     },
                     onExploreClick = { query ->
                         coroutineScope.launch { drawerState.close() }
-                        backStack.add(Explore(initialQuery = query))
+                        backStack.clear()
+                        backStack.add(Home)
                     },
                     onCreditStoreClick = {
                         coroutineScope.launch { drawerState.close() }
@@ -356,11 +356,6 @@ fun MainNavigation() {
                         backStack.clear()
                         backStack.add(Home)
                     }
-                    BottomNavTab.EXPLORE -> {
-                        backStack.clear()
-                        backStack.add(Home)
-                        backStack.add(Explore())
-                    }
                     BottomNavTab.PROFILE -> {
                         backStack.clear()
                         backStack.add(Home)
@@ -368,7 +363,7 @@ fun MainNavigation() {
                     }
                 }
             },
-            showBottomBar = currentKey == Home || currentKey == Profile || currentKey is Explore,
+            showBottomBar = currentKey == Home || currentKey == Profile,
             onAddClick = { showCreatePlanDialog = true },
             avatarUrl = activeUser?.avatarUrl
         ) { innerPadding ->

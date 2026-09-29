@@ -14,6 +14,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileTabsBar(
@@ -21,6 +24,7 @@ fun ProfileTabsBar(
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptic = LocalHapticFeedback.current
     PrimaryTabRow(
         selectedTabIndex = selectedTab,
         containerColor = MaterialTheme.colorScheme.surface,
@@ -29,7 +33,10 @@ fun ProfileTabsBar(
     ) {
         Tab(
             selected = selectedTab == 0,
-            onClick = { onTabSelected(0) },
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onTabSelected(0)
+            },
             text = {
                 Text(
                     text = "Posts",
@@ -39,7 +46,10 @@ fun ProfileTabsBar(
         )
         Tab(
             selected = selectedTab == 1,
-            onClick = { onTabSelected(1) },
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onTabSelected(1)
+            },
             text = {
                 Text(
                     text = "Comments",
@@ -49,7 +59,10 @@ fun ProfileTabsBar(
         )
         Tab(
             selected = selectedTab == 2,
-            onClick = { onTabSelected(2) },
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onTabSelected(2)
+            },
             text = {
                 Text(
                     text = "Plans",

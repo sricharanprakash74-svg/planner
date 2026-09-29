@@ -22,6 +22,7 @@ data class CommunityFeedUiState(
     val selectedFilter: FeedFilter = FeedFilter.TRENDING,
     val followingUserIds: Set<String> = emptySet(),
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val errorMessage: String? = null
 )
 
@@ -35,6 +36,8 @@ class CommunityFeedViewModel(
     private val _searchQuery = MutableStateFlow(initialQuery)
     private val _selectedFilter = MutableStateFlow(FeedFilter.TRENDING)
     private val _errorMessage = MutableStateFlow<String?>(null)
+    private val _refreshTrigger = MutableStateFlow(0L)
+    private val _isRefreshing = MutableStateFlow(false)
 
     private val debouncedQuery = _searchQuery
         .debounce(250L)
@@ -69,8 +72,9 @@ class CommunityFeedViewModel(
     private val postsFeedFlow = combine(
         _selectedFilter,
         debouncedQuery,
-        userPrefsFlow
-    ) { filter, query, (categories, interests) ->
+        userPrefsFlow,
+        _refreshTrigger
+    ) { filter, query, (categories, interests), _ ->
         Triple(filter, query, Pair(categories, interests))
     }.flatMapLatest { (filter, query, prefs) ->
         if (query.isNotBlank()) {
@@ -82,18 +86,21 @@ class CommunityFeedViewModel(
                 query = "",
                 userCategories = prefs.first,
                 userInterests = prefs.second
-            )
+            ).onEach {
+                _isRefreshing.value = false
+            }
         }
     }
 
     private data class FeedParams(
         val query: String,
         val filter: FeedFilter,
-        val error: String?
+        val error: String?,
+        val refreshing: Boolean
     )
 
-    private val feedParamsFlow = combine(_searchQuery, _selectedFilter, _errorMessage) { query, filter, error ->
-        FeedParams(query, filter, error)
+    private val feedParamsFlow = combine(_searchQuery, _selectedFilter, _errorMessage, _isRefreshing) { query, filter, error, refreshing ->
+        FeedParams(query, filter, error, refreshing)
     }
 
     val uiState: StateFlow<CommunityFeedUiState> = combine(
@@ -110,6 +117,7 @@ class CommunityFeedViewModel(
             selectedFilter = params.filter,
             followingUserIds = following,
             isLoading = false,
+            isRefreshing = params.refreshing,
             errorMessage = params.error
         )
     }.stateIn(
@@ -117,6 +125,11 @@ class CommunityFeedViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = CommunityFeedUiState(searchQuery = initialQuery, isLoading = true)
     )
+
+    fun refresh() {
+        _isRefreshing.value = true
+        _refreshTrigger.value = System.currentTimeMillis()
+    }
 
     fun onSearchQueryChanged(newQuery: String) {
         _searchQuery.value = newQuery

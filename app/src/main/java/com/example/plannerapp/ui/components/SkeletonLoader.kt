@@ -233,3 +233,55 @@ fun AnalyticsSkeleton(modifier: Modifier = Modifier) {
         )
     }
 }
+
+/**
+ * Skeleton placeholder for a community feed post card.
+ */
+@Composable
+fun CommunityPostSkeleton(modifier: Modifier = Modifier) {
+    val baseColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    val brush = shimmerBrush()
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(AppDimens.CornerCard))
+            .background(baseColor)
+            .background(brush)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header: avatar + username + badge
+            Row(
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                ShimmerBox(modifier = Modifier.size(36.dp), cornerRadius = 18.dp)
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    ShimmerBox(modifier = Modifier.width(100.dp).height(14.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ShimmerBox(modifier = Modifier.width(60.dp).height(10.dp))
+                }
+                ShimmerBox(modifier = Modifier.width(50.dp).height(20.dp), cornerRadius = 10.dp)
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            // Title
+            ShimmerBox(modifier = Modifier.fillMaxWidth(0.7f).height(18.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            // Tags
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ShimmerBox(modifier = Modifier.width(60.dp).height(16.dp), cornerRadius = 4.dp)
+                ShimmerBox(modifier = Modifier.width(50.dp).height(16.dp), cornerRadius = 4.dp)
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            // Action bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                ShimmerBox(modifier = Modifier.width(80.dp).height(14.dp))
+                ShimmerBox(modifier = Modifier.width(24.dp).height(14.dp))
+            }
+        }
+    }
+}
+
