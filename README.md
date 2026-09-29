@@ -2,7 +2,7 @@
 
 > An offline-first, social habit-building and routine-planning platform built for Android.
 
-taxent bridges the gap between personal productivity and social accountability. It empowers users to architect structured multi-day plans, track micro-habits, visualize consistency through financial-style performance charts, and discover community-crafted routines.
+taxent bridges the gap between personal productivity and social accountability. It empowers users to design their structured multi-day plans, track micro-habits, visualize consistency through stylized performance charts, and discover community-crafted routines.
 
 ---
 
@@ -15,8 +15,8 @@ Most productivity and habit-tracking applications suffer from two fundamental pr
 taxent solves this by combining:
 - **Instant Offline-First Architecture**: Fast Room SQLite persistence guarantees zero UI lag and complete offline functionality. Background synchronization with Supabase syncs progress seamlessly whenever connectivity is available.
 - **Social Accountability & Creator Ecosystem**: Users can publish verified routines, fork curated plans from top creators, and earn rewards through streak freezes and community milestones.
-- **Visual Performance Tracking**: Consistency curves modeled after financial stock charts translate everyday habit discipline into tangible momentum.
-- **Sustainable Monetization via RevenueCat**: A frictionless, non-intrusive Pro tier powered by the RevenueCat SDK, featuring flexible annual and monthly memberships, streak protection shields, and cross-device entitlement restoration.
+- **Visual Performance Tracking**: Consistency curves translate everyday habit discipline into tangible momentum.
+- **Sustainable Monetization via RevenueCat**: A frictionless, non-intrusive Pro tier powered by the RevenueCat SDK, featuring flexible annual monthly memberships and buying credits, streak protection shields, and cross-device entitlement restoration.
 
 ---
 
