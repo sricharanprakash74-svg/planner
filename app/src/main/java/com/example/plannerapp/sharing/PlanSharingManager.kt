@@ -15,7 +15,7 @@ import java.util.UUID
 
 object PlanSharingManager {
 
-    private const val DEEP_LINK_BASE = "plannerapp://share/plan"
+    private const val DEEP_LINK_BASE = "taxent://share/plan"
 
     fun generateShareCode(): String = UUID.randomUUID().toString().take(8).uppercase()
 

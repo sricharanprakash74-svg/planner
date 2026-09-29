@@ -7,6 +7,7 @@ import com.example.plannerapp.data.PlanDayCompletionEntity
 import com.example.plannerapp.data.PlanEntity
 import com.example.plannerapp.data.PlannerDao
 import com.example.plannerapp.data.PlannerRepository
+import com.example.plannerapp.data.SyncOutboxEntity
 import com.example.plannerapp.data.TaskTemplateEntity
 import com.example.plannerapp.data.social.InMemorySocialRepository
 import com.example.plannerapp.data.template.AuthorDto
@@ -267,6 +268,69 @@ class CommunityJoinFlowTest {
         override suspend fun markTemplatesSynced(ids: List<Long>) {}
         override suspend fun markPlansSynced(ids: List<Long>) {}
         override suspend fun migrateUserPlans(oldUserId: Long, newUserId: Long) {}
+
+        override suspend fun setPlanRemoteId(planId: Long, remoteId: String, updatedAt: Long) {
+            val idx = plans.indexOfFirst { it.planId == planId }
+            if (idx != -1) {
+                plans[idx] = plans[idx].copy(remoteId = remoteId, syncStatus = "SYNCED", updatedAt = updatedAt)
+            }
+        }
+
+        override suspend fun setTemplateRemoteId(templateId: Long, remoteId: String) {
+            val idx = taskTemplates.indexOfFirst { it.templateId == templateId }
+            if (idx != -1) {
+                taskTemplates[idx] = taskTemplates[idx].copy(remoteId = remoteId, syncStatus = "SYNCED")
+            }
+        }
+
+        override suspend fun setCheckinRemoteId(checkinId: Long, remoteId: String) {
+            val idx = checkins.indexOfFirst { it.checkinId == checkinId }
+            if (idx != -1) {
+                checkins[idx] = checkins[idx].copy(remoteId = remoteId, syncStatus = "SYNCED")
+            }
+        }
+
+        override suspend fun markPlanDeleted(planId: Long, updatedAt: Long) {
+            val idx = plans.indexOfFirst { it.planId == planId }
+            if (idx != -1) {
+                plans[idx] = plans[idx].copy(syncStatus = "DELETED", updatedAt = updatedAt)
+            }
+        }
+
+        override suspend fun markTemplateDeleted(templateId: Long) {
+            val idx = taskTemplates.indexOfFirst { it.templateId == templateId }
+            if (idx != -1) {
+                taskTemplates[idx] = taskTemplates[idx].copy(syncStatus = "DELETED")
+            }
+        }
+
+        private val outbox = mutableListOf<SyncOutboxEntity>()
+        private var nextOutboxId = 1L
+
+        override suspend fun insertOutboxEvent(event: SyncOutboxEntity): Long {
+            val id = if (event.outboxId != 0L) event.outboxId else nextOutboxId++
+            outbox.add(event.copy(outboxId = id))
+            return id
+        }
+
+        override suspend fun peekOutbox(limit: Int): List<SyncOutboxEntity> =
+            outbox.take(limit)
+
+        override suspend fun deleteOutboxEvent(outboxId: Long) {
+            outbox.removeAll { it.outboxId == outboxId }
+        }
+
+        override suspend fun incrementOutboxRetry(outboxId: Long) {
+            val idx = outbox.indexOfFirst { it.outboxId == outboxId }
+            if (idx != -1) {
+                val curr = outbox[idx]
+                outbox[idx] = curr.copy(retryCount = curr.retryCount + 1)
+            }
+        }
+
+        override suspend fun pruneExhaustedOutboxEvents(maxRetries: Int) {
+            outbox.removeAll { it.retryCount >= maxRetries }
+        }
 
         override suspend fun insertJoinedCommunity(joined: JoinedCommunityEntity): Long {
             val id = if (joined.id != 0L) joined.id else nextJoinedId++

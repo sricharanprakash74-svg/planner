@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handleDeepLinkIntent(intent: android.content.Intent?) {
         val uri = intent?.data ?: return
-        if (uri.scheme == "plannerapp" && uri.host == "share") {
+        if ((uri.scheme == "taxent" || uri.scheme == "plannerapp") && uri.host == "share") {
             com.example.plannerapp.sharing.DeepLinkState.pendingDeepLink.value = uri
         }
     }
