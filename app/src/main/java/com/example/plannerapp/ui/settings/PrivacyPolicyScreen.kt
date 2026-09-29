@@ -46,7 +46,7 @@ fun PrivacyPolicyScreen(
 
             PrivacySection(
                 title = "1. Information We Collect",
-                body = "PlannerApp collects the information you provide when creating an account, such as your display name and email address. We also collect usage data, including plans and tasks you create, completion history, and streak data. No sensitive personal data is required to use the app."
+                body = "taxent collects the information you provide when creating an account, such as your display name and email address. We also collect usage data, including plans and tasks you create, completion history, and streak data. No sensitive personal data is required to use the app."
             )
             PrivacySection(
                 title = "2. How We Use Your Information",
@@ -66,7 +66,7 @@ fun PrivacyPolicyScreen(
             )
             PrivacySection(
                 title = "6. Contact",
-                body = "If you have questions about this policy, please contact us at privacy@plannerapp.example.com."
+                body = "If you have questions about this policy, please contact us at privacy@taxent.example.com."
             )
         }
     }

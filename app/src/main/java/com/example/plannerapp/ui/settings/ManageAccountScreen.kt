@@ -373,7 +373,7 @@ fun ManageAccountScreen(
             },
             title = {
                 Text(
-                    text = if (isGuest) "Clear Local Data?" else "Delete PlannerApp Account?",
+                    text = if (isGuest) "Clear Local Data?" else "Delete taxent Account?",
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.error
                 )

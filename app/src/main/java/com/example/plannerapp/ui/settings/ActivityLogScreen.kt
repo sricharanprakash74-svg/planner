@@ -50,7 +50,7 @@ fun ActivityLogScreen(
         ) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Your recent activity in PlannerApp — last 30 days.",
+                text = "Your recent activity in taxent — last 30 days.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

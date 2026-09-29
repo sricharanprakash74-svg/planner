@@ -99,7 +99,7 @@ class ExportDataViewModel(
 
     private fun buildMarkdown(plansWithTemplates: List<Pair<com.example.plannerapp.data.PlanEntity, List<com.example.plannerapp.data.TaskTemplateEntity>>>, displayName: String): String {
         val sb = StringBuilder()
-        sb.appendLine("# PlannerApp Export")
+        sb.appendLine("# taxent Export")
         sb.appendLine("**User:** $displayName")
         sb.appendLine("**Exported:** ${SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date())}")
         sb.appendLine()

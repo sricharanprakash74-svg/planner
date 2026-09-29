@@ -40,6 +40,10 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
+                    android:scheme="taxent"
+                    android:host="share"
+                    android:pathPrefix="/plan" />
+                <data
                     android:scheme="plannerapp"
                     android:host="share"
                     android:pathPrefix="/plan" />

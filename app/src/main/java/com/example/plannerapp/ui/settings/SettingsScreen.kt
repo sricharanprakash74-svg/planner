@@ -102,7 +102,7 @@ fun SettingsScreen(
         add(SettingsEntry("Creator Program", "Share routines, inspire the community, and earn rewards (Coming Soon)", Icons.Outlined.AutoAwesome, trailingText = "Coming Soon", onClick = { showCreatorWaitlistSheet = true }))
         add(SettingsEntry("Planner Pro Pass", "Subscriptions & multi-store in-app purchases", Icons.Outlined.WorkspacePremium, onClick = onSubscriptionClick))
         add(SettingsEntry("Help & FAQ", null, Icons.AutoMirrored.Outlined.HelpOutline, onClick = onHelpClick))
-        add(SettingsEntry("About PlannerApp", "v1.0.0", Icons.Outlined.Info, onClick = onAboutClick))
+        add(SettingsEntry("About taxent", "v1.0.0", Icons.Outlined.Info, onClick = onAboutClick))
     }
 
     val filteredEntries = remember(searchQuery, allEntries) {
@@ -199,8 +199,8 @@ fun SettingsScreen(
                     )
                 }
 
-                // --- How you use PlannerApp ---
-                SettingsSectionLabel("How you use PlannerApp")
+                // --- How you use taxent ---
+                SettingsSectionLabel("How you use taxent")
                 SettingsInsetCard {
                     SettingsItemRow(icon = Icons.Outlined.Bookmark, label = "Saved Plans", onClick = onSavedPlansClick)
                     SettingsIntraCardDivider()
@@ -287,7 +287,7 @@ fun SettingsScreen(
                     SettingsIntraCardDivider()
                     SettingsItemRow(icon = Icons.Outlined.PrivacyTip, label = "Privacy Policy", onClick = onPrivacyPolicyClick)
                     SettingsIntraCardDivider()
-                    SettingsItemRow(icon = Icons.Outlined.Info, label = "About PlannerApp", trailingText = "v1.0.0", onClick = onAboutClick)
+                    SettingsItemRow(icon = Icons.Outlined.Info, label = "About taxent", trailingText = "v1.0.0", onClick = onAboutClick)
                 }
 
                 // --- Login ---

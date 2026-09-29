@@ -23,7 +23,7 @@ fun AboutScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("About PlannerApp", fontWeight = FontWeight.Bold) },
+                title = { Text("About taxent", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -60,7 +60,7 @@ fun AboutScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "PlannerApp",
+                text = "taxent",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )

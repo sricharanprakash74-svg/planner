@@ -320,7 +320,7 @@ private fun StepGuidelines(
             Checkbox(checked = guidelinesAccepted, onCheckedChange = onAcceptChange)
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "I agree to follow the PlannerApp creator community guidelines.",
+                text = "I agree to follow the taxent creator community guidelines.",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 12.dp)
             )
