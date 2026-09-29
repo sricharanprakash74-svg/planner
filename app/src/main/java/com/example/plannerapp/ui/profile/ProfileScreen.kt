@@ -1,5 +1,11 @@
 package com.example.plannerapp.ui.profile
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -179,8 +185,17 @@ fun ProfileScreen(
         Spacer(modifier = Modifier.height(AppDimens.Space16))
 
         // 4. Tab Content
-        when (selectedTab) {
-            0 -> {
+        AnimatedContent(
+            targetState = selectedTab,
+            transitionSpec = {
+                fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)) togetherWith
+                fadeOut(animationSpec = tween(150, easing = FastOutSlowInEasing))
+            },
+            label = "profile_tab_transition",
+            modifier = Modifier.fillMaxWidth()
+        ) { tabIndex ->
+            when (tabIndex) {
+                0 -> {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -287,6 +302,7 @@ fun ProfileScreen(
                 onPlanClick = onPlanClick
             )
         }
+    }
 
         Spacer(modifier = Modifier.height(AppDimens.Space24))
     }

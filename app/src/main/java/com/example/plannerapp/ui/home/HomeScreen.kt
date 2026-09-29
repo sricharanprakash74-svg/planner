@@ -1,5 +1,6 @@
 package com.example.plannerapp.ui.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -10,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -577,16 +579,25 @@ fun HomeScreen(
                     }
                 }
 
-                if (searchQuery.isNotBlank()) {
-                    // ── UNIVERSAL SEARCH (My Routines, Community Plans, Creators) ──
-                    val searchResults = feedUiState.searchResults
-                    val hasLocal = localMatches.isNotEmpty()
-                    val hasCommunityPlans = isOnline && searchResults.plans.isNotEmpty()
-                    val hasCreators = isOnline && searchResults.creators.isNotEmpty()
-                    val isSearching = isOnline && feedUiState.isSearching
+                AnimatedContent(
+                    targetState = searchQuery.isNotBlank(),
+                    transitionSpec = {
+                        fadeIn(tween(220, easing = FastOutSlowInEasing)) togetherWith
+                        fadeOut(tween(160, easing = FastOutSlowInEasing))
+                    },
+                    label = "search_state_transition",
+                    modifier = Modifier.fillMaxSize()
+                ) { inSearchMode ->
+                    if (inSearchMode) {
+                        // ── UNIVERSAL SEARCH (My Routines, Community Plans, Creators) ──
+                        val searchResults = feedUiState.searchResults
+                        val hasLocal = localMatches.isNotEmpty()
+                        val hasCommunityPlans = isOnline && searchResults.plans.isNotEmpty()
+                        val hasCreators = isOnline && searchResults.creators.isNotEmpty()
+                        val isQuerySearching = isOnline && feedUiState.isSearching
 
-                    if (!hasLocal && !hasCommunityPlans && !hasCreators) {
-                        if (isSearching) {
+                        if (!hasLocal && !hasCommunityPlans && !hasCreators) {
+                            if (isQuerySearching) {
                             LazyColumn(
                                 contentPadding = PaddingValues(AppDimens.Space16),
                                 verticalArrangement = Arrangement.spacedBy(AppDimens.Space12),
@@ -763,8 +774,18 @@ fun HomeScreen(
                             }
                         }
                     }
-                } else if (activeFeedTab == HomeFeedTab.MY_PLANS || !isOnline) {
-                    PullToRefreshBox(
+                } else {
+                    AnimatedContent(
+                        targetState = activeFeedTab,
+                        transitionSpec = {
+                            fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
+                            fadeOut(tween(150, easing = FastOutSlowInEasing))
+                        },
+                        label = "feed_tab_transition",
+                        modifier = Modifier.fillMaxSize()
+                    ) { tab ->
+                        if (tab == HomeFeedTab.MY_PLANS || !isOnline) {
+                            PullToRefreshBox(
                         isRefreshing = isMyPlansRefreshing,
                         onRefresh = {
                             coroutineScope.launch {
@@ -1029,6 +1050,9 @@ fun HomeScreen(
                 }
             }
         }
+    }
+}
+}
 
     // Plan Actions Bottom Sheet (from Long-Press)
     planForActions?.let { plan ->
