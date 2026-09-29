@@ -16,12 +16,12 @@ val rawBackendBaseUrl = localProps.getProperty("BACKEND_BASE_URL") ?: System.get
 val backendBaseUrl = if (rawBackendBaseUrl.endsWith("/")) rawBackendBaseUrl else "$rawBackendBaseUrl/"
 val clientAppSecret = localProps.getProperty("CLIENT_APP_SECRET") ?: System.getenv("CLIENT_APP_SECRET") ?: ""
 val rcApiKey = localProps.getProperty("REVENUECAT_API_KEY") ?: System.getenv("REVENUECAT_API_KEY") ?: "goog_placeholder_key"
-val useMockBilling = localProps.getProperty("USE_MOCK_BILLING") ?: System.getenv("USE_MOCK_BILLING") ?: "false"
+val isReleaseTask = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+val useMockBilling = localProps.getProperty("USE_MOCK_BILLING") ?: System.getenv("USE_MOCK_BILLING") ?: if (isReleaseTask) "false" else "true"
 val supabaseUrl = localProps.getProperty("SUPABASE_URL") ?: System.getenv("SUPABASE_URL") ?: "https://your-project.supabase.co"
 val supabaseAnonKey = localProps.getProperty("SUPABASE_ANON_KEY") ?: System.getenv("SUPABASE_ANON_KEY") ?: "your-anon-key-placeholder"
 val googleServerClientId = localProps.getProperty("GOOGLE_SERVER_CLIENT_ID") ?: System.getenv("GOOGLE_SERVER_CLIENT_ID") ?: "your-google-server-client-id.apps.googleusercontent.com"
 
-val isReleaseTask = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
 if (isReleaseTask) {
     val invalidConfigs = mutableListOf<String>()
     if (rcApiKey == "goog_placeholder_key" || rcApiKey.isBlank()) {

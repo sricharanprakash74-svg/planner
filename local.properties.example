@@ -10,3 +10,9 @@ CLIENT_APP_SECRET=shipaton_hackathon_token
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key-placeholder
 GOOGLE_SERVER_CLIENT_ID=your-google-server-client-id.apps.googleusercontent.com
+
+# RevenueCat In-App Purchases & Subscriptions
+# Set your RevenueCat Public API key (e.g. goog_xxx for Android)
+REVENUECAT_API_KEY=goog_placeholder_key
+# Enable mock billing for local testing without a Google Play Developer account
+USE_MOCK_BILLING=true

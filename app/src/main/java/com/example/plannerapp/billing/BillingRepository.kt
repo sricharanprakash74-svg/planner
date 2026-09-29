@@ -183,7 +183,7 @@ class AppBillingRepository(
 
     override fun restorePurchases(onComplete: (Boolean) -> Unit) {
         scope.launch {
-            if (Purchases.isConfigured) {
+            if (Purchases.isConfigured && _availablePackages.value.isNotEmpty()) {
                 Purchases.sharedInstance.restorePurchases(object : ReceiveCustomerInfoCallback {
                     override fun onReceived(customerInfo: CustomerInfo) {
                         val hasPro = customerInfo.entitlements[BillingConfig.ENTITLEMENT_PRO]?.isActive == true ||
