@@ -133,6 +133,7 @@ fun ProfileScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = AppDimens.Space16),
         horizontalAlignment = Alignment.CenterHorizontally

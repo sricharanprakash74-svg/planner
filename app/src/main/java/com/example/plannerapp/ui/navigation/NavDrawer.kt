@@ -73,7 +73,7 @@ fun AppNavDrawerSheet(
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "PlannerApp",
+                                    text = "taxent",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold
                                 )

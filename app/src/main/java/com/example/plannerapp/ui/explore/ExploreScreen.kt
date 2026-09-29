@@ -49,6 +49,8 @@ fun ExploreScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(horizontal = AppDimens.Space16)
     ) {
         Spacer(modifier = Modifier.height(AppDimens.Space8))

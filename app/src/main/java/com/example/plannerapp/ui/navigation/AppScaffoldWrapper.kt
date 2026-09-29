@@ -39,7 +39,7 @@ fun AppScaffoldWrapper(
     }
 
     val bottomBarOffset by animateDpAsState(
-        targetValue = if (isBottomBarVisible) 0.dp else 90.dp,
+        targetValue = if (isBottomBarVisible) 0.dp else 120.dp,
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "kineticBottomBarOffset"
     )
