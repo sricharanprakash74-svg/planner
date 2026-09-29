@@ -104,13 +104,15 @@ taxent implements monetization through the **RevenueCat SDK**:
    cp local.properties.example local.properties
    ```
 3. Set your keys in `local.properties`:
+   To keep credentials out of version control and follow Android best practices, taxent reads secrets dynamically from `local.properties` via `BuildConfig`.
+   To run the app locally, add `REVENUECAT_KEY=your_key_here` to your `local.properties` file:
    ```properties
    # Supabase Credentials
    SUPABASE_URL=https://your-project.supabase.co
    SUPABASE_ANON_KEY=your-supabase-anon-key
 
    # RevenueCat Configuration
-   REVENUECAT_API_KEY=goog_placeholder_key
+   REVENUECAT_KEY=test_your_actual_key_here
    USE_MOCK_BILLING=true
    ```
 

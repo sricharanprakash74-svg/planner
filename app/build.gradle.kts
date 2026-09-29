@@ -15,7 +15,11 @@ if (localPropsFile.exists()) {
 val rawBackendBaseUrl = localProps.getProperty("BACKEND_BASE_URL") ?: System.getenv("BACKEND_BASE_URL") ?: "http://10.0.2.2:3000/"
 val backendBaseUrl = if (rawBackendBaseUrl.endsWith("/")) rawBackendBaseUrl else "$rawBackendBaseUrl/"
 val clientAppSecret = localProps.getProperty("CLIENT_APP_SECRET") ?: System.getenv("CLIENT_APP_SECRET") ?: ""
-val rcApiKey = localProps.getProperty("REVENUECAT_API_KEY") ?: System.getenv("REVENUECAT_API_KEY") ?: "goog_placeholder_key"
+val rcKey = localProps.getProperty("REVENUECAT_KEY")
+    ?: localProps.getProperty("REVENUECAT_API_KEY")
+    ?: System.getenv("REVENUECAT_KEY")
+    ?: System.getenv("REVENUECAT_API_KEY")
+    ?: ""
 val isReleaseTask = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
 val useMockBilling = localProps.getProperty("USE_MOCK_BILLING") ?: System.getenv("USE_MOCK_BILLING") ?: if (isReleaseTask) "false" else "true"
 val supabaseUrl = localProps.getProperty("SUPABASE_URL") ?: System.getenv("SUPABASE_URL") ?: "https://your-project.supabase.co"
@@ -24,8 +28,8 @@ val googleServerClientId = localProps.getProperty("GOOGLE_SERVER_CLIENT_ID") ?: 
 
 if (isReleaseTask) {
     val invalidConfigs = mutableListOf<String>()
-    if (rcApiKey == "goog_placeholder_key" || rcApiKey.isBlank()) {
-        invalidConfigs.add("REVENUECAT_API_KEY (cannot be placeholder or blank in release)")
+    if (rcKey.isBlank() || rcKey == "goog_placeholder_key") {
+        invalidConfigs.add("REVENUECAT_KEY (cannot be placeholder or blank in release)")
     }
     if (supabaseUrl == "https://your-project.supabase.co" || supabaseUrl.isBlank()) {
         invalidConfigs.add("SUPABASE_URL (cannot be placeholder or blank in release)")
@@ -60,7 +64,8 @@ android {
         multiDexEnabled = true
         buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
         buildConfigField("String", "CLIENT_APP_SECRET", "\"$clientAppSecret\"")
-        buildConfigField("String", "REVENUECAT_API_KEY", "\"$rcApiKey\"")
+        buildConfigField("String", "REVENUECAT_KEY", "\"$rcKey\"")
+        buildConfigField("String", "REVENUECAT_API_KEY", "\"$rcKey\"")
         buildConfigField("Boolean", "USE_MOCK_BILLING", useMockBilling)
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")

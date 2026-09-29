@@ -84,8 +84,8 @@ class AppBillingRepository(
     private fun initRevenueCatAsync() {
         scope.launch {
             try {
-                val apiKey = BuildConfig.REVENUECAT_API_KEY
-                if (apiKey.isNotBlank() && !Purchases.isConfigured) {
+                val apiKey = BuildConfig.REVENUECAT_KEY.ifBlank { BuildConfig.REVENUECAT_API_KEY }
+                if (apiKey.isNotBlank() && apiKey != "goog_placeholder_key" && !Purchases.isConfigured) {
                     Purchases.logLevel = LogLevel.DEBUG
                     Purchases.configure(
                         PurchasesConfiguration.Builder(context, apiKey).build()
