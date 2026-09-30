@@ -207,24 +207,36 @@ class PublicPlanDetailViewModel(
     fun usePlan(startDate: LocalDate = LocalDate.now()) {
         val currentPost = uiState.value.post ?: return
         val existingTemplate = uiState.value.planTemplate
-        val template = if (existingTemplate != null && existingTemplate.title.isNotBlank()) {
+        val template = if (existingTemplate != null && !existingTemplate.tasks.isNullOrEmpty()) {
             existingTemplate
         } else {
-            com.example.plannerapp.data.template.PlanTemplateDto(
-                title = currentPost.title.ifBlank { "Imported Plan" },
-                description = currentPost.description,
-                targetDurationDays = currentPost.durationDays.coerceAtLeast(1),
-                defaultTaskDurationDays = 1,
-                tags = currentPost.tags,
-                category = currentPost.category,
-                author = com.example.plannerapp.data.template.AuthorDto(
-                    userId = currentPost.author.userId,
-                    displayName = currentPost.author.displayName,
-                    avatarUrl = currentPost.author.avatarUrl,
-                    isCreator = currentPost.author.isCreator
-                ),
-                tasks = emptyList()
-            )
+            val parsedFromPost = try {
+                gson.fromJson(currentPost.planTemplateJson, PlanTemplateDto::class.java)
+            } catch (e: Exception) { null }
+            if (parsedFromPost != null && !parsedFromPost.tasks.isNullOrEmpty()) {
+                parsedFromPost.copy(
+                    title = parsedFromPost.title.ifBlank { currentPost.title.ifBlank { "Imported Plan" } },
+                    description = parsedFromPost.description.ifBlank { currentPost.description },
+                    targetDurationDays = if (parsedFromPost.targetDurationDays > 0) parsedFromPost.targetDurationDays else currentPost.durationDays.coerceAtLeast(1),
+                    tasks = parsedFromPost.tasks
+                )
+            } else {
+                existingTemplate ?: com.example.plannerapp.data.template.PlanTemplateDto(
+                    title = currentPost.title.ifBlank { "Imported Plan" },
+                    description = currentPost.description,
+                    targetDurationDays = currentPost.durationDays.coerceAtLeast(1),
+                    defaultTaskDurationDays = 1,
+                    tags = currentPost.tags,
+                    category = currentPost.category,
+                    author = com.example.plannerapp.data.template.AuthorDto(
+                        userId = currentPost.author.userId,
+                        displayName = currentPost.author.displayName,
+                        avatarUrl = currentPost.author.avatarUrl,
+                        isCreator = currentPost.author.isCreator
+                    ),
+                    tasks = emptyList()
+                )
+            }
         }
 
         viewModelScope.launch {

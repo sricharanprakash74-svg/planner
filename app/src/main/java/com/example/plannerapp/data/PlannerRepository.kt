@@ -262,8 +262,9 @@ class PlannerRepository(private val dao: PlannerDao) {
     ): Result<com.example.plannerapp.data.template.PlanTemplateDto> {
         val plan = dao.getPlanById(planId) ?: return Result.failure(IllegalArgumentException("Plan not found"))
         val templates = dao.getTemplatesForPlan(planId)
+        val checkins = try { dao.getAllCheckinsForPlan(planId).first() } catch (e: Exception) { emptyList() }
         val exporter = com.example.plannerapp.data.template.PlanExporter()
-        return Result.success(exporter.exportPlan(plan, templates, author, tags, category))
+        return Result.success(exporter.exportPlan(plan, templates, author, tags, category, checkins))
     }
 
     suspend fun importPlanTemplate(
@@ -284,6 +285,51 @@ class PlannerRepository(private val dao: PlannerDao) {
     suspend fun getPlanById(planId: Long): PlanEntity? = dao.getPlanById(planId)
 
     suspend fun insertDailyCheckins(checkins: List<DailyCheckinEntity>) = dao.insertDailyCheckins(checkins)
+
+    suspend fun syncCommunityTasksToLocalPlan(planId: Long, template: com.example.plannerapp.data.template.PlanTemplateDto) {
+        try {
+            val plan = dao.getPlanById(planId) ?: return
+            val existingTemplates = dao.getTemplatesForPlan(planId)
+            val existingDescriptions = existingTemplates.map { it.taskDescription.trim().lowercase() }.toSet()
+            val gson = com.google.gson.Gson()
+
+            val start = try { LocalDate.parse(plan.startDate, dateFormatter) } catch (e: Exception) { return }
+            val end = try { LocalDate.parse(plan.endDate, dateFormatter) } catch (e: Exception) { start.plusDays(6) }
+            val planDaysCount = (java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1).coerceAtLeast(1).toInt()
+
+            for (taskDto in template.tasks) {
+                if (taskDto.taskDescription.trim().lowercase() !in existingDescriptions) {
+                    val subtasksJson = gson.toJson(taskDto.subtasks)
+                    val taskDuration = taskDto.durationDays.coerceAtLeast(1)
+                    val activeDaysSet = taskDto.selectedDays
+                        .split(",")
+                        .mapNotNull { it.trim().toIntOrNull() }
+                        .toSet()
+                    val isFullDuration = taskDuration >= planDaysCount || taskDuration >= 7 || activeDaysSet.size >= 7 || activeDaysSet.isEmpty()
+                    val isSingleDayCreationBug = activeDaysSet.size == 1 && taskDuration > 1
+                    val effectiveSelectedDays = if (isFullDuration || isSingleDayCreationBug) {
+                        "1,2,3,4,5,6,7"
+                    } else {
+                        taskDto.selectedDays.ifBlank { "1,2,3,4,5,6,7" }
+                    }
+
+                    val newTemplate = TaskTemplateEntity(
+                        planId = planId,
+                        taskDescription = taskDto.taskDescription,
+                        selectedDays = effectiveSelectedDays,
+                        durationDays = taskDuration,
+                        subtasks = subtasksJson,
+                        syncStatus = "LOCAL"
+                    )
+                    dao.insertTaskTemplate(newTemplate)
+                }
+            }
+
+            repairMissingCheckinsForPlan(planId)
+        } catch (e: Exception) {
+            // Graceful fallback
+        }
+    }
 
     suspend fun repairMissingCheckinsForPlan(planId: Long) {
         try {
@@ -331,7 +377,7 @@ class PlannerRepository(private val dao: PlannerDao) {
                     } else if (activeDaysSet.size in 2..6) {
                         activeDaysSet.contains(date.dayOfWeek.value)
                     } else {
-                        activeDaysSet.contains(date.dayOfWeek.value)
+                        offset < taskDuration
                     }
 
                     if (shouldAdd) {
@@ -384,12 +430,12 @@ class PlannerRepository(private val dao: PlannerDao) {
         creditRepository: com.example.plannerapp.credits.CreditRepository? = null
     ): Result<Long> {
         return try {
-            // Enforce one join per user/post: return existing plan if already joined
+            // Enforce one join per user/post: return existing plan if already joined, and synchronize any missing tasks
             val existing = dao.getJoinedCommunityByPostId(postId)
             if (existing != null) {
                 val existingPlan = dao.getPlanById(existing.localPlanId)
                 if (existingPlan != null && existingPlan.userId == targetUserId) {
-                    repairMissingCheckinsForPlan(existingPlan.planId)
+                    syncCommunityTasksToLocalPlan(existingPlan.planId, template)
                     return Result.success(existing.localPlanId)
                 }
             }

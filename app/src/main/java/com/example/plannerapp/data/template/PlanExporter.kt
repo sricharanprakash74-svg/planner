@@ -1,5 +1,6 @@
 package com.example.plannerapp.data.template
 
+import com.example.plannerapp.data.DailyCheckinEntity
 import com.example.plannerapp.data.PlanEntity
 import com.example.plannerapp.data.TaskTemplateEntity
 import com.example.plannerapp.data.UserEntity
@@ -24,7 +25,8 @@ class PlanExporter(
         templates: List<TaskTemplateEntity>,
         author: UserEntity,
         tags: List<String> = emptyList(),
-        category: String = "Productivity"
+        category: String = "Productivity",
+        checkins: List<DailyCheckinEntity> = emptyList()
     ): PlanTemplateDto {
         val totalDays = try {
             val start = LocalDate.parse(plan.startDate)
@@ -41,6 +43,8 @@ class PlanExporter(
             isCreator = author.isCreator
         )
 
+        val planStart = try { LocalDate.parse(plan.startDate) } catch (e: Exception) { LocalDate.now() }
+
         val taskDtos = templates.map { template ->
             val subtasksList: List<String> = try {
                 val listType = object : TypeToken<List<String>>() {}.type
@@ -49,16 +53,30 @@ class PlanExporter(
                 emptyList()
             }
 
-            val taskDuration = template.durationDays.coerceAtLeast(1)
+            val templateCheckins = checkins.filter { it.templateId == template.templateId }
+            val checkinOffsets = templateCheckins.mapNotNull {
+                try {
+                    val d = LocalDate.parse(it.exactDate)
+                    ChronoUnit.DAYS.between(planStart, d).toInt()
+                } catch (e: Exception) { null }
+            }.sorted()
+
+            val startDayOffset = checkinOffsets.firstOrNull()?.coerceAtLeast(0) ?: 0
+            val taskDuration = template.durationDays.coerceAtLeast(checkinOffsets.size).coerceAtLeast(1)
+
             val activeDaysSet = template.selectedDays
                 .split(",")
                 .mapNotNull { it.trim().toIntOrNull() }
                 .toSet()
 
-            val normalizedDays = if (taskDuration >= totalDays || taskDuration >= 7 || (activeDaysSet.size == 1 && taskDuration > 1) || activeDaysSet.isEmpty() || activeDaysSet.size >= 7) {
+            val isFullOrBug = taskDuration >= totalDays || taskDuration >= 7 || (activeDaysSet.size == 1 && taskDuration > 1) || activeDaysSet.isEmpty() || activeDaysSet.size >= 7 || checkinOffsets.size >= totalDays
+
+            val normalizedDays = if (isFullOrBug) {
                 "1,2,3,4,5,6,7"
+            } else if (activeDaysSet.size in 2..6) {
+                template.selectedDays
             } else {
-                template.selectedDays.ifBlank { "1,2,3,4,5,6,7" }
+                "1,2,3,4,5,6,7"
             }
 
             TaskTemplateDto(
@@ -66,7 +84,7 @@ class PlanExporter(
                 selectedDays = normalizedDays,
                 durationDays = taskDuration,
                 subtasks = subtasksList,
-                startDayOffset = 0
+                startDayOffset = startDayOffset
             )
         }
 
@@ -92,9 +110,10 @@ class PlanExporter(
         templates: List<TaskTemplateEntity>,
         author: UserEntity,
         tags: List<String> = emptyList(),
-        category: String = "Productivity"
+        category: String = "Productivity",
+        checkins: List<DailyCheckinEntity> = emptyList()
     ): String {
-        val dto = exportPlan(plan, templates, author, tags, category)
+        val dto = exportPlan(plan, templates, author, tags, category, checkins)
         return gson.toJson(dto)
     }
 

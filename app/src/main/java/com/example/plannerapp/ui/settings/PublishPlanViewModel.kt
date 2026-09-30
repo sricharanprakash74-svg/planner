@@ -82,7 +82,8 @@ class PublishPlanViewModel(
                     ?: throw IllegalStateException("Plan not found")
 
                 val exporter = PlanExporter()
-                val templateDto = exporter.exportPlan(plan.copy(heading = title, description = description), templates, user, tags, category)
+                val checkins = try { repository.getAllCheckinsForPlan(planId).first() } catch (e: Exception) { emptyList() }
+                val templateDto = exporter.exportPlan(plan.copy(heading = title, description = description), templates, user, tags, category, checkins)
                 val templateJson = Gson().toJson(templateDto)
 
                 val cloudUser = CloudUser(

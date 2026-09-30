@@ -76,6 +76,18 @@ class PlanDetailViewModel(
     init {
         viewModelScope.launch {
             repository.repairMissingCheckinsForPlan(planId)
+            try {
+                val joined = repository.getJoinedCommunityForPlanOnce(planId)
+                if (joined != null && socialRepository != null) {
+                    val post = socialRepository.getPostById(joined.postId).firstOrNull()
+                    if (post != null && post.planTemplateJson.isNotBlank()) {
+                        val template = gson.fromJson(post.planTemplateJson, PlanTemplateDto::class.java)
+                        if (template != null && !template.tasks.isNullOrEmpty()) {
+                            repository.syncCommunityTasksToLocalPlan(planId, template)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
         }
     }
 

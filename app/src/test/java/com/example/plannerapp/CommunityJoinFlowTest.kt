@@ -276,6 +276,76 @@ class CommunityJoinFlowTest {
         assertTrue(allCheckins.any { it.exactDate == "2026-10-04" })
     }
 
+    @Test
+    fun joinCommunityPlan_rejoiningExistingPlan_synchronizesMissingTasksFromCreator() = runTest {
+        // User joined previously, but plan was missing 2 of the 3 tasks
+        val planId = fakeDao.insertPlan(
+            PlanEntity(
+                heading = "exam preparation",
+                description = "",
+                startDate = "2026-09-30",
+                endDate = "2026-10-06",
+                userId = 100L
+            )
+        )
+        fakeDao.insertJoinedCommunity(
+            JoinedCommunityEntity(
+                localPlanId = planId,
+                postId = "post_exam_prep",
+                communityTitle = "exam preparation",
+                creatorName = "sricharan"
+            )
+        )
+        // Only 1 task existed locally ("maths")
+        fakeDao.insertTaskTemplate(
+            TaskTemplateEntity(
+                planId = planId,
+                taskDescription = "maths",
+                selectedDays = "1,2,3,4,5,6,7",
+                durationDays = 7,
+                subtasks = "[\"exercise 1\"]"
+            )
+        )
+
+        val fullTemplate = PlanTemplateDto(
+            title = "exam preparation",
+            description = "Study routine",
+            targetDurationDays = 7,
+            defaultTaskDurationDays = 1,
+            author = AuthorDto("usr1", "sricharan"),
+            tasks = listOf(
+                TaskTemplateDto("maths", "1,2,3,4,5,6,7", 7, listOf("exercise 1")),
+                TaskTemplateDto("chemistry", "1,2,3,4,5,6,7", 7, listOf("problem")),
+                TaskTemplateDto("physics", "1,2,3,4,5,6,7", 7, listOf("problem"))
+            )
+        )
+
+        // User taps "Use Plan" again
+        val result = plannerRepository.joinCommunityPlan(
+            postId = "post_exam_prep",
+            template = fullTemplate,
+            targetUserId = 100L,
+            startDate = LocalDate.of(2026, 9, 30),
+            socialRepository = socialRepository
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(planId, result.getOrThrow())
+
+        // All 3 tasks must now exist locally
+        val localTemplates = fakeDao.taskTemplates.filter { it.planId == planId }
+        assertEquals(3, localTemplates.size)
+        assertTrue(localTemplates.any { it.taskDescription == "maths" })
+        assertTrue(localTemplates.any { it.taskDescription == "chemistry" })
+        assertTrue(localTemplates.any { it.taskDescription == "physics" })
+
+        // Checkins must be populated across all 7 days for all 3 tasks (21 checkins total)
+        val allCheckins = fakeDao.checkins.filter { c ->
+            localTemplates.any { t -> t.templateId == c.templateId }
+        }
+        assertEquals(21, allCheckins.size)
+    }
+
     private class FakePlannerDao : PlannerDao {
         val plans = mutableListOf<PlanEntity>()
         val taskTemplates = mutableListOf<TaskTemplateEntity>()
