@@ -389,6 +389,7 @@ class AuthViewModel(
             appContext ?: return
         )
         val dao = db.plannerDao()
+        val repository = com.example.plannerapp.data.PlannerRepository(dao)
 
         for (remotePlan in remotePlans) {
             val remoteId = remotePlan["id"]?.jsonPrimitive?.content ?: continue
@@ -397,24 +398,113 @@ class AuthViewModel(
             val endDate   = remotePlan["end_date"]?.jsonPrimitive?.content ?: startDate
             val description = remotePlan["description"]?.jsonPrimitive?.content ?: ""
             val isPublic = remotePlan["is_public"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
+            val defaultDuration = remotePlan["default_task_duration_days"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1
+            val reminderEnabled = remotePlan["reminder_enabled"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
+            val reminderTime = remotePlan["reminder_time"]?.jsonPrimitive?.content ?: "08:00"
 
-            // Skip if already present locally
-            val allLocalPlans = dao.getPlansForUser(localUserId)
-            val alreadyExists = allLocalPlans.first()
-                .any { it.remoteId == remoteId }
-            if (alreadyExists) continue
+            val allLocalPlans = dao.getPlansForUser(localUserId).first()
+            val existingPlan = allLocalPlans.find { it.remoteId == remoteId }
+            val localPlanId = if (existingPlan != null) {
+                existingPlan.planId
+            } else {
+                val newPlan = com.example.plannerapp.data.PlanEntity(
+                    userId      = localUserId,
+                    remoteId    = remoteId,
+                    heading     = heading,
+                    description = description,
+                    startDate   = startDate,
+                    endDate     = endDate,
+                    isPublic    = isPublic,
+                    defaultTaskDurationDays = defaultDuration,
+                    reminderEnabled = reminderEnabled,
+                    reminderTime = reminderTime,
+                    syncStatus  = "SYNCED"
+                )
+                dao.insertPlan(newPlan)
+            }
 
-            val newPlan = com.example.plannerapp.data.PlanEntity(
-                userId      = localUserId,
-                remoteId    = remoteId,
-                heading     = heading,
-                description = description,
-                startDate   = startDate,
-                endDate     = endDate,
-                isPublic    = isPublic,
-                syncStatus  = "SYNCED"
-            )
-            dao.insertPlan(newPlan)
+            // Restore task templates for this plan from user_task_templates
+            try {
+                val remoteTemplates = supabase.postgrest.from("user_task_templates").select {
+                    filter { eq("plan_remote_id", remoteId) }
+                }.decodeList<kotlinx.serialization.json.JsonObject>()
+
+                val localTemplates = dao.getTemplatesForPlan(localPlanId)
+
+                for (remoteTmpl in remoteTemplates) {
+                    val tmplRemoteId = remoteTmpl["id"]?.jsonPrimitive?.content ?: continue
+                    val taskDesc = remoteTmpl["task_description"]?.jsonPrimitive?.content ?: continue
+                    val selectedDays = remoteTmpl["selected_days"]?.jsonPrimitive?.content ?: "1,2,3,4,5,6,7"
+                    val durationDays = remoteTmpl["duration_days"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1
+                    val subtasks = remoteTmpl["subtasks"]?.jsonPrimitive?.content ?: "[]"
+
+                    val existingTmpl = localTemplates.find { it.remoteId == tmplRemoteId || it.taskDescription.equals(taskDesc, ignoreCase = true) }
+                    val localTemplateId = if (existingTmpl != null) {
+                        if (existingTmpl.remoteId == null) {
+                            dao.setTemplateRemoteId(existingTmpl.templateId, tmplRemoteId)
+                        }
+                        existingTmpl.templateId
+                    } else {
+                        val newTemplate = com.example.plannerapp.data.TaskTemplateEntity(
+                            planId = localPlanId,
+                            remoteId = tmplRemoteId,
+                            taskDescription = taskDesc,
+                            selectedDays = selectedDays,
+                            durationDays = durationDays,
+                            subtasks = subtasks,
+                            syncStatus = "SYNCED"
+                        )
+                        dao.insertTaskTemplate(newTemplate)
+                    }
+
+                    // Restore daily checkins for this template
+                    try {
+                        val remoteCheckins = supabase.postgrest.from("user_daily_checkins").select {
+                            filter { eq("template_remote_id", tmplRemoteId) }
+                        }.decodeList<kotlinx.serialization.json.JsonObject>()
+
+                        val existingCheckins = dao.getAllCheckinsForPlan(localPlanId).first()
+                            .filter { it.templateId == localTemplateId }
+                        val checkinsByDate = existingCheckins.associateBy { it.exactDate }
+
+                        val checkinsToInsert = mutableListOf<com.example.plannerapp.data.DailyCheckinEntity>()
+                        for (remoteCi in remoteCheckins) {
+                            val ciRemoteId = remoteCi["id"]?.jsonPrimitive?.content ?: continue
+                            val exactDate = remoteCi["exact_date"]?.jsonPrimitive?.content ?: continue
+                            val isCompleted = remoteCi["is_completed"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
+                            val completedSubtasks = remoteCi["completed_subtasks"]?.jsonPrimitive?.content ?: "[]"
+                            val completedAt = remoteCi["completed_at_ms"]?.jsonPrimitive?.content?.toLongOrNull()
+                            val tzOffset = remoteCi["timezone_offset"]?.jsonPrimitive?.content ?: ""
+
+                            val existingCi = checkinsByDate[exactDate]
+                            if (existingCi == null) {
+                                checkinsToInsert.add(
+                                    com.example.plannerapp.data.DailyCheckinEntity(
+                                        templateId = localTemplateId,
+                                        remoteId = ciRemoteId,
+                                        exactDate = exactDate,
+                                        isCompleted = isCompleted,
+                                        completedSubtasks = completedSubtasks,
+                                        completedAt = completedAt,
+                                        timezoneOffset = tzOffset,
+                                        syncStatus = "SYNCED"
+                                    )
+                                )
+                            } else if (existingCi.remoteId == null) {
+                                dao.setCheckinRemoteId(existingCi.checkinId, ciRemoteId)
+                            }
+                        }
+                        if (checkinsToInsert.isNotEmpty()) {
+                            dao.insertDailyCheckins(checkinsToInsert)
+                        }
+                    } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
+
+            // Repair missing checkins so every date in the timeline has daily tasks
+            try {
+                repository.repairMissingCheckinsForPlan(localPlanId)
+            } catch (_: Exception) {}
         }
     }
 }

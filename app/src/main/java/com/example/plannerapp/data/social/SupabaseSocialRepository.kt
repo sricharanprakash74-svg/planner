@@ -293,7 +293,7 @@ class SupabaseSocialRepository(
         }
     }
 
-    suspend fun getPlanVersions(planId: String): Result<List<PlanVersion>> = withContext(Dispatchers.IO) {
+    override suspend fun getPlanVersions(planId: String): Result<List<PlanVersion>> = withContext(Dispatchers.IO) {
         try {
             if (!SupabaseConfig.isConfigured) {
                 val cached = _cachedTemplateJsons[planId]
@@ -1286,7 +1286,8 @@ class SupabaseSocialRepository(
             }
 
             val latest = versions.first()
-            if (latest.versionTag.trim() == currentLocalVersion.trim()) {
+            val latestVersionTag = latest.versionTag ?: "1.0.0"
+            if (latestVersionTag.trim() == currentLocalVersion.trim()) {
                 emit(null)
                 return@flow
             }
@@ -1304,7 +1305,7 @@ class SupabaseSocialRepository(
                 return@flow
             }
 
-            val currentVersionDto = versions.find { it.versionTag.trim() == currentLocalVersion.trim() }?.let { ver ->
+            val currentVersionDto = versions.find { (it.versionTag ?: "").trim() == currentLocalVersion.trim() }?.let { ver ->
                 try {
                     json.decodeFromString<PlanTemplateDto>(ver.templateJson)
                 } catch (e: Exception) {
@@ -1323,9 +1324,9 @@ class SupabaseSocialRepository(
 
             val update = PlanVersionUpdate(
                 planId = sourcePlanId,
-                latestVersionTag = latest.versionTag,
+                latestVersionTag = latestVersionTag,
                 currentLocalVersion = currentLocalVersion,
-                changelog = latest.changelog,
+                changelog = latest.changelog ?: "",
                 publishedAt = latest.publishedAt,
                 newTasks = newTasks,
                 totalTasksInLatest = latestDto.tasks.size

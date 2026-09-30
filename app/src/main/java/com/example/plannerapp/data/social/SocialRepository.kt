@@ -85,6 +85,7 @@ interface SocialRepository {
     fun getBlockedUsers(currentUserId: String): Flow<Set<String>>
 
     // Plan Versioning & Evolution
+    suspend fun getPlanVersions(planId: String): Result<List<PlanVersion>>
     fun checkForPlanUpdate(sourcePlanId: String, currentLocalVersion: String): Flow<PlanVersionUpdate?>
 
     // Privacy & Relationship Matrix
@@ -554,6 +555,15 @@ class InMemorySocialRepository(
         }
         _notifications.value = list
         return Result.success(true)
+    }
+
+    override suspend fun getPlanVersions(planId: String): Result<List<PlanVersion>> {
+        val post = _posts.value.find { it.postId == planId }
+        return if (post != null) {
+            Result.success(listOf(PlanVersion(id = "v_$planId", planId = planId, versionTag = "1.0.0", templateJson = post.planTemplateJson)))
+        } else {
+            Result.success(emptyList())
+        }
     }
 
     override fun checkForPlanUpdate(sourcePlanId: String, currentLocalVersion: String): Flow<PlanVersionUpdate?> {

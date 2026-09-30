@@ -119,10 +119,10 @@ object JsonElementAsStringSerializer : KSerializer<String> {
 
 @Serializable
 data class PlanVersion(
-    val id: String = "",
-    @SerialName("plan_id") val planId: String,
-    @SerialName("version_tag") val versionTag: String = "1.0.0", // e.g. "1.0.0"
-    val changelog: String = "Initial publication",
+    val id: String? = "",
+    @SerialName("plan_id") val planId: String = "",
+    @SerialName("version_tag") val versionTag: String? = "1.0.0",
+    val changelog: String? = "Initial publication",
     @Serializable(with = JsonElementAsStringSerializer::class)
     @SerialName("template_json") val templateJson: String = "{}",
     @SerialName("published_at") val publishedAt: String? = null

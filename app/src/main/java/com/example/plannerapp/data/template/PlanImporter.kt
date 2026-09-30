@@ -22,7 +22,13 @@ class PlanImporter(
      */
     fun parseJson(jsonString: String): Result<PlanTemplateDto> {
         return try {
-            val dto = gson.fromJson(jsonString, PlanTemplateDto::class.java)
+            var raw = jsonString.trim()
+            if (raw.startsWith("\"") && raw.endsWith("\"") && raw.length > 2) {
+                try {
+                    raw = gson.fromJson(raw, String::class.java).trim()
+                } catch (_: Exception) {}
+            }
+            val dto = gson.fromJson(raw, PlanTemplateDto::class.java)
                 ?: return Result.failure(IllegalArgumentException("Parsed JSON yielded null template"))
             validate(dto).map { dto }
         } catch (e: Exception) {
@@ -94,20 +100,19 @@ class PlanImporter(
                 .mapNotNull { it.trim().toIntOrNull() }
                 .toSet()
 
-            // A task spans the entire plan if duration matches plan or is >= 7, or if selectedDays has all days or was set to single day due to creation day bug
-            val isFullDuration = taskDuration >= durationDays || taskDuration >= 7 || activeDaysSet.size >= 7 || activeDaysSet.isEmpty()
             val isSingleDayCreationBug = activeDaysSet.size == 1 && taskDuration > 1
-            val effectiveSelectedDays = if (isFullDuration || isSingleDayCreationBug) {
+            val effectiveSelectedDays = if (activeDaysSet.size >= 7 || activeDaysSet.isEmpty() || isSingleDayCreationBug || taskDto.selectedDays.isBlank()) {
                 "1,2,3,4,5,6,7"
             } else {
-                taskDto.selectedDays.ifBlank { "1,2,3,4,5,6,7" }
+                taskDto.selectedDays
             }
+            val isAllDays = taskDuration >= durationDays || taskDuration >= 7 || activeDaysSet.size >= 7 || activeDaysSet.isEmpty() || effectiveSelectedDays == "1,2,3,4,5,6,7"
 
             val taskTemplateEntity = TaskTemplateEntity(
                 planId = 0, // Will be assigned during transaction
                 taskDescription = taskDto.taskDescription,
                 selectedDays = effectiveSelectedDays,
-                durationDays = taskDuration,
+                durationDays = if (isAllDays) durationDays else taskDuration,
                 subtasks = subtasksJson,
                 syncStatus = "LOCAL"
             )
@@ -119,20 +124,14 @@ class PlanImporter(
                 val currentDate = startDate.plusDays(offset.toLong())
                 val dayOfWeekValue = currentDate.dayOfWeek.value // 1 (Mon) to 7 (Sun)
 
-                val shouldInclude = if (isFullDuration || isSingleDayCreationBug) {
-                    offset < taskDuration
-                } else if (activeDaysSet.size in 2..6) {
-                    // Explicit recurring days (e.g., Mon, Wed, Fri habit)
-                    activeDaysSet.contains(dayOfWeekValue)
-                } else if (activeDaysSet.size == 1) {
-                    if (taskDto.startDayOffset > 0) {
-                        offset == taskDto.startDayOffset
-                    } else {
-                        // Check if day matches or if single-day task falls on this offset
-                        activeDaysSet.contains(dayOfWeekValue) || offset == 0
-                    }
-                } else {
+                val shouldInclude = if (isAllDays) {
                     true
+                } else if (activeDaysSet.size in 1..6) {
+                    activeDaysSet.contains(dayOfWeekValue)
+                } else if (taskDto.startDayOffset > 0) {
+                    offset == taskDto.startDayOffset
+                } else {
+                    offset < taskDuration
                 }
 
                 if (shouldInclude) {

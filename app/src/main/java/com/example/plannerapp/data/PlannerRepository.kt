@@ -8,7 +8,12 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
-class PlannerRepository(private val dao: PlannerDao) {
+class PlannerRepository(
+    private val dao: PlannerDao,
+    private val syncOutbox: com.example.plannerapp.sync.SyncOutboxRepository? = null,
+    private val userDao: UserDao? = null,
+    private val appContext: android.content.Context? = null
+) {
 
     private val dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 
@@ -37,6 +42,7 @@ class PlannerRepository(private val dao: PlannerDao) {
             completedAt = if (isCompleted) System.currentTimeMillis() else null,
             timezoneOffset = offset
         )
+        enqueueCheckinSync(checkinId)
     }
 
     suspend fun updateCheckinAndSubtasksStatus(checkinId: Long, isCompleted: Boolean, completedSubtasks: String) {
@@ -49,6 +55,23 @@ class PlannerRepository(private val dao: PlannerDao) {
             completedAt = if (isCompleted) System.currentTimeMillis() else null,
             timezoneOffset = offset
         )
+        enqueueCheckinSync(checkinId)
+    }
+
+    private suspend fun enqueueCheckinSync(checkinId: Long) {
+        try {
+            val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id
+                ?: userDao?.getActiveUserOnce()?.cloudUserId
+            if (cloudUid != null && syncOutbox != null) {
+                val checkin = dao.getPendingSyncCheckins().find { it.checkinId == checkinId }
+                if (checkin != null) {
+                    val templates = dao.getPendingSyncTemplates()
+                    val tmpl = templates.find { it.templateId == checkin.templateId }
+                    syncOutbox.enqueueCheckinUpsert(checkin, tmpl?.remoteId, cloudUid)
+                    appContext?.let { com.example.plannerapp.sync.SupabaseSyncWorker.enqueue(it) }
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     suspend fun getStreak(userId: Long, currentDate: LocalDate): Int {
@@ -127,13 +150,34 @@ class PlannerRepository(private val dao: PlannerDao) {
 
     suspend fun updateTask(templateId: Long, description: String, durationDays: Int, subtasks: String) {
         dao.updateTaskTemplate(templateId, description, durationDays, subtasks)
+        try {
+            val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id
+                ?: userDao?.getActiveUserOnce()?.cloudUserId
+            if (cloudUid != null && syncOutbox != null) {
+                val templates = dao.getPendingSyncTemplates()
+                val updatedTmpl = templates.find { it.templateId == templateId }
+                if (updatedTmpl != null) {
+                    val plan = dao.getPlanById(updatedTmpl.planId)
+                    syncOutbox.enqueueTemplateUpsert(updatedTmpl, plan?.remoteId, cloudUid)
+                    appContext?.let { com.example.plannerapp.sync.SupabaseSyncWorker.enqueue(it) }
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     suspend fun deleteTask(templateId: Long) {
+        val tmpl = dao.getPendingSyncTemplates().find { it.templateId == templateId }
+        val remoteId = tmpl?.remoteId
         // Soft-delete task first
         dao.markTemplateDeleted(templateId)
         dao.deleteCheckinsForTemplate(templateId)
         dao.deleteTaskTemplate(templateId)
+        try {
+            if (syncOutbox != null) {
+                syncOutbox.enqueueTemplateDelete(templateId, remoteId)
+                appContext?.let { com.example.plannerapp.sync.SupabaseSyncWorker.enqueue(it) }
+            }
+        } catch (_: Exception) {}
     }
 
     fun getWeeklyCheckins(userId: Long): Flow<List<DailyCheckinEntity>> {
@@ -214,6 +258,23 @@ class PlannerRepository(private val dao: PlannerDao) {
             )
         }
         dao.insertDailyCheckins(checkins)
+
+        try {
+            val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id
+                ?: userDao?.getActiveUserOnce()?.cloudUserId
+            if (cloudUid != null && syncOutbox != null) {
+                val plan = dao.getPlanById(template.planId)
+                val insertedTemplate = template.copy(templateId = templateId, durationDays = durationDays)
+                syncOutbox.enqueueTemplateUpsert(insertedTemplate, plan?.remoteId, cloudUid)
+
+                val insertedCheckinEntities = dao.getAllCheckinsForPlan(template.planId).first()
+                    .filter { it.templateId == templateId }
+                for (ci in insertedCheckinEntities) {
+                    syncOutbox.enqueueCheckinUpsert(ci, null, cloudUid)
+                }
+                appContext?.let { com.example.plannerapp.sync.SupabaseSyncWorker.enqueue(it) }
+            }
+        } catch (_: Exception) {}
     }
 
     // Temporary function to populate DB so we can see UI working
@@ -313,11 +374,12 @@ class PlannerRepository(private val dao: PlannerDao) {
                         taskDto.selectedDays.ifBlank { "1,2,3,4,5,6,7" }
                     }
 
+                    val isAllDays = taskDuration >= planDaysCount || taskDuration >= 7 || activeDaysSet.size >= 7 || activeDaysSet.isEmpty() || effectiveSelectedDays == "1,2,3,4,5,6,7"
                     val newTemplate = TaskTemplateEntity(
                         planId = planId,
                         taskDescription = taskDto.taskDescription,
                         selectedDays = effectiveSelectedDays,
-                        durationDays = taskDuration,
+                        durationDays = if (isAllDays) planDaysCount else taskDuration,
                         subtasks = subtasksJson,
                         syncStatus = "LOCAL"
                     )
@@ -363,8 +425,7 @@ class PlannerRepository(private val dao: PlannerDao) {
                     .mapNotNull { it.trim().toIntOrNull() }
                     .toSet()
 
-                val isFullDuration = taskDuration >= planDaysCount || taskDuration >= 7 || activeDaysSet.size >= 7 || activeDaysSet.isEmpty()
-                val isSingleDayBug = activeDaysSet.size == 1 && taskDuration > 1
+                val isAllDays = taskDuration >= planDaysCount || taskDuration >= 7 || activeDaysSet.size >= 7 || activeDaysSet.isEmpty() || template.selectedDays == "1,2,3,4,5,6,7"
 
                 for (offset in 0 until planDaysCount) {
                     val date = start.plusDays(offset.toLong())
@@ -372,9 +433,9 @@ class PlannerRepository(private val dao: PlannerDao) {
 
                     if (dateStr in existingDates) continue
 
-                    val shouldAdd = if (isFullDuration || isSingleDayBug) {
-                        offset < taskDuration
-                    } else if (activeDaysSet.size in 2..6) {
+                    val shouldAdd = if (isAllDays) {
+                        true
+                    } else if (activeDaysSet.size in 1..6) {
                         activeDaysSet.contains(date.dayOfWeek.value)
                     } else {
                         offset < taskDuration
@@ -395,7 +456,7 @@ class PlannerRepository(private val dao: PlannerDao) {
 
                 // If template has NO checkins at all, add for all days up to duration
                 if (templateCheckins.isEmpty() && newCheckins.none { it.templateId == template.templateId }) {
-                    for (offset in 0 until taskDuration.coerceAtMost(planDaysCount)) {
+                    for (offset in 0 until (if (isAllDays) planDaysCount else taskDuration.coerceAtMost(planDaysCount))) {
                         val date = start.plusDays(offset.toLong())
                         val dateStr = date.format(dateFormatter)
                         if (dateStr !in existingDates) {
@@ -458,6 +519,27 @@ class PlannerRepository(private val dao: PlannerDao) {
                     creatorName = template.author.displayName
                 )
             )
+
+            // Sync outbox backup for authenticated online user
+            try {
+                val cloudUid = com.example.plannerapp.auth.SupabaseConfig.auth.currentUserOrNull()?.id
+                    ?: userDao?.getActiveUserOnce()?.cloudUserId
+                if (cloudUid != null && syncOutbox != null) {
+                    val savedPlan = dao.getPlanById(newLocalPlanId)
+                    if (savedPlan != null) {
+                        syncOutbox.enqueuePlanUpsert(savedPlan, cloudUid)
+                        val tmpls = dao.getTemplatesForPlan(newLocalPlanId)
+                        for (t in tmpls) {
+                            syncOutbox.enqueueTemplateUpsert(t, null, cloudUid)
+                        }
+                        val cis = dao.getAllCheckinsForPlan(newLocalPlanId).first()
+                        for (ci in cis) {
+                            syncOutbox.enqueueCheckinUpsert(ci, null, cloudUid)
+                        }
+                        appContext?.let { com.example.plannerapp.sync.SupabaseSyncWorker.enqueue(it) }
+                    }
+                }
+            } catch (_: Exception) {}
 
             // Increment remote join count
             socialRepository?.incrementJoinCount(postId)

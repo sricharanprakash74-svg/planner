@@ -112,7 +112,63 @@ class SupabaseSyncWorker(
                     // Attach owner_id for RLS
                     val mutableMap = jsonObj.toMutableMap()
                     mutableMap["owner_id"] = kotlinx.serialization.json.JsonPrimitive(ownerUid)
-                    val finalPayload = JsonObject(mutableMap)
+
+                    // Resolve foreign key remoteId if missing
+                    if (event.entityType == "TEMPLATE") {
+                        val currentPlanRemoteId = mutableMap["plan_remote_id"]?.jsonPrimitive?.content
+                        if (currentPlanRemoteId.isNullOrBlank()) {
+                            val allTemplates = dao.getPendingSyncTemplates()
+                            val tmpl = allTemplates.find { it.templateId == event.localId }
+                            if (tmpl != null) {
+                                val plan = dao.getPlanById(tmpl.planId)
+                                if (plan?.remoteId != null) {
+                                    mutableMap["plan_remote_id"] = kotlinx.serialization.json.JsonPrimitive(plan.remoteId)
+                                } else {
+                                    // Parent plan not yet synced to cloud — defer template sync until plan has remoteId
+                                    return false
+                                }
+                            }
+                        }
+                    } else if (event.entityType == "CHECKIN") {
+                        val currentTmplRemoteId = mutableMap["template_remote_id"]?.jsonPrimitive?.content
+                        if (currentTmplRemoteId.isNullOrBlank()) {
+                            val allCheckins = dao.getPendingSyncCheckins()
+                            val checkin = allCheckins.find { it.checkinId == event.localId }
+                            if (checkin != null) {
+                                val allTemplates = dao.getPendingSyncTemplates()
+                                val tmpl = allTemplates.find { it.templateId == checkin.templateId }
+                                if (tmpl?.remoteId != null) {
+                                    mutableMap["template_remote_id"] = kotlinx.serialization.json.JsonPrimitive(tmpl.remoteId)
+                                } else {
+                                    // Parent template not yet synced to cloud — defer checkin sync
+                                    return false
+                                }
+                            }
+                        }
+                    }
+
+                    // Format proper JSON primitive types for strict PostgreSQL columns
+                    val sanitizedMap = mutableMap.mapNotNull { (k, v) ->
+                        val strVal = if (v is kotlinx.serialization.json.JsonPrimitive) v.content else v.toString()
+                        when (k) {
+                            "id", "plan_remote_id", "template_remote_id" -> {
+                                if (strVal.isBlank()) null else k to kotlinx.serialization.json.JsonPrimitive(strVal)
+                            }
+                            "is_public", "is_completed", "reminder_enabled" -> {
+                                k to kotlinx.serialization.json.JsonPrimitive(strVal.toBooleanStrictOrNull() ?: false)
+                            }
+                            "duration_days", "default_task_duration_days" -> {
+                                k to kotlinx.serialization.json.JsonPrimitive(strVal.toIntOrNull() ?: 1)
+                            }
+                            "local_id", "created_at_ms", "updated_at_ms", "completed_at_ms" -> {
+                                val longVal = strVal.toLongOrNull()
+                                if (longVal != null) k to kotlinx.serialization.json.JsonPrimitive(longVal) else null
+                            }
+                            else -> k to v
+                        }
+                    }.toMap()
+
+                    val finalPayload = JsonObject(sanitizedMap)
 
                     val response = supabase.postgrest.from(tableName)
                         .upsert(finalPayload) {

@@ -80,11 +80,22 @@ class PlanDetailViewModel(
                 val joined = repository.getJoinedCommunityForPlanOnce(planId)
                 if (joined != null && socialRepository != null) {
                     val post = socialRepository.getPostById(joined.postId).firstOrNull()
-                    if (post != null && post.planTemplateJson.isNotBlank()) {
-                        val template = gson.fromJson(post.planTemplateJson, PlanTemplateDto::class.java)
-                        if (template != null && !template.tasks.isNullOrEmpty()) {
-                            repository.syncCommunityTasksToLocalPlan(planId, template)
-                        }
+                    val importer = com.example.plannerapp.data.template.PlanImporter()
+                    var template: PlanTemplateDto? = null
+                    if (post != null && post.planTemplateJson.isNotBlank() && post.planTemplateJson != "{}") {
+                        template = importer.parseJson(post.planTemplateJson).getOrNull()
+                    }
+                    if (template == null || template.tasks.isNullOrEmpty()) {
+                        try {
+                            val versions = socialRepository.getPlanVersions(joined.postId).getOrNull()
+                            val directJson = versions?.firstOrNull()?.templateJson
+                            if (!directJson.isNullOrBlank()) {
+                                template = importer.parseJson(directJson).getOrNull()
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    if (template != null && !template.tasks.isNullOrEmpty()) {
+                        repository.syncCommunityTasksToLocalPlan(planId, template)
                     }
                 }
             } catch (_: Exception) {}

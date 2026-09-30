@@ -97,8 +97,9 @@ import com.example.plannerapp.ui.billing.PaywallScreen
 fun MainNavigation() {
     val context = LocalContext.current
     val database = PlannerDatabase.getDatabase(context)
-    val repository = PlannerRepository(database.plannerDao())
     val userDao = database.userDao()
+    val syncOutbox = remember { com.example.plannerapp.sync.SyncOutboxRepository(database.plannerDao(), context.applicationContext) }
+    val repository = PlannerRepository(database.plannerDao(), syncOutbox, userDao, context.applicationContext)
     val socialRepository: SocialRepository = remember { SupabaseSocialRepository() }
 
     // Instant session restoration: check if user already signed in (guest or cloud)

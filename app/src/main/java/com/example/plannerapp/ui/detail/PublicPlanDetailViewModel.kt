@@ -54,8 +54,9 @@ class PublicPlanDetailViewModel(
         viewModelScope.launch {
             socialRepository.getPostById(planId).collect { post ->
                 if (post != null) {
-                    val template = try {
-                        gson.fromJson(post.planTemplateJson, PlanTemplateDto::class.java)?.let { parsed ->
+                    var template = try {
+                        val importer = com.example.plannerapp.data.template.PlanImporter()
+                        importer.parseJson(post.planTemplateJson).getOrNull()?.let { parsed ->
                             if (parsed.title.isBlank()) {
                                 parsed.copy(
                                     title = post.title,
@@ -67,7 +68,22 @@ class PublicPlanDetailViewModel(
                                 parsed.copy(tasks = parsed.tasks)
                             }
                         }
-                    } catch (e: Exception) { null } ?: com.example.plannerapp.data.template.PlanTemplateDto(
+                    } catch (e: Exception) { null }
+
+                    if (template == null || template.tasks.isNullOrEmpty()) {
+                        try {
+                            val versions = socialRepository.getPlanVersions(post.postId).getOrNull()
+                            val directJson = versions?.firstOrNull()?.templateJson
+                            if (!directJson.isNullOrBlank()) {
+                                val parsedDirect = com.example.plannerapp.data.template.PlanImporter().parseJson(directJson).getOrNull()
+                                if (parsedDirect != null && !parsedDirect.tasks.isNullOrEmpty()) {
+                                    template = parsedDirect
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+
+                    val finalTemplate = template ?: com.example.plannerapp.data.template.PlanTemplateDto(
                         title = post.title,
                         description = post.description,
                         targetDurationDays = post.durationDays.coerceAtLeast(1),
@@ -86,7 +102,7 @@ class PublicPlanDetailViewModel(
                     _uiState.update {
                         it.copy(
                             post = post,
-                            planTemplate = template,
+                            planTemplate = finalTemplate,
                             isSaved = post.isSaved,
                             isLiked = post.userVote == VoteType.UP,
                             isLoading = false
@@ -206,42 +222,53 @@ class PublicPlanDetailViewModel(
 
     fun usePlan(startDate: LocalDate = LocalDate.now()) {
         val currentPost = uiState.value.post ?: return
-        val existingTemplate = uiState.value.planTemplate
-        val template = if (existingTemplate != null && !existingTemplate.tasks.isNullOrEmpty()) {
-            existingTemplate
-        } else {
-            val parsedFromPost = try {
-                gson.fromJson(currentPost.planTemplateJson, PlanTemplateDto::class.java)
-            } catch (e: Exception) { null }
-            if (parsedFromPost != null && !parsedFromPost.tasks.isNullOrEmpty()) {
-                parsedFromPost.copy(
-                    title = parsedFromPost.title.ifBlank { currentPost.title.ifBlank { "Imported Plan" } },
-                    description = parsedFromPost.description.ifBlank { currentPost.description },
-                    targetDurationDays = if (parsedFromPost.targetDurationDays > 0) parsedFromPost.targetDurationDays else currentPost.durationDays.coerceAtLeast(1),
-                    tasks = parsedFromPost.tasks
-                )
-            } else {
-                existingTemplate ?: com.example.plannerapp.data.template.PlanTemplateDto(
-                    title = currentPost.title.ifBlank { "Imported Plan" },
-                    description = currentPost.description,
-                    targetDurationDays = currentPost.durationDays.coerceAtLeast(1),
-                    defaultTaskDurationDays = 1,
-                    tags = currentPost.tags,
-                    category = currentPost.category,
-                    author = com.example.plannerapp.data.template.AuthorDto(
-                        userId = currentPost.author.userId,
-                        displayName = currentPost.author.displayName,
-                        avatarUrl = currentPost.author.avatarUrl,
-                        isCreator = currentPost.author.isCreator
-                    ),
-                    tasks = emptyList()
-                )
-            }
-        }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isUsing = true) }
             try {
+                val existingTemplate = uiState.value.planTemplate
+                var template = if (existingTemplate != null && !existingTemplate.tasks.isNullOrEmpty()) {
+                    existingTemplate
+                } else {
+                    var parsedFromPost: PlanTemplateDto? = null
+                    val rawJson = currentPost.planTemplateJson
+                    if (rawJson.isNotBlank() && rawJson != "{}") {
+                        parsedFromPost = try { com.example.plannerapp.data.template.PlanImporter().parseJson(rawJson).getOrNull() } catch (_: Exception) { null }
+                    }
+                    if (parsedFromPost == null || parsedFromPost.tasks.isNullOrEmpty()) {
+                        try {
+                            val versions = socialRepository.getPlanVersions(currentPost.postId).getOrNull()
+                            val directJson = versions?.firstOrNull()?.templateJson
+                            if (!directJson.isNullOrBlank()) {
+                                parsedFromPost = com.example.plannerapp.data.template.PlanImporter().parseJson(directJson).getOrNull()
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    if (parsedFromPost != null && !parsedFromPost.tasks.isNullOrEmpty()) {
+                        parsedFromPost.copy(
+                            title = parsedFromPost.title.ifBlank { currentPost.title.ifBlank { "Imported Plan" } },
+                            description = parsedFromPost.description.ifBlank { currentPost.description },
+                            targetDurationDays = if (parsedFromPost.targetDurationDays > 0) parsedFromPost.targetDurationDays else currentPost.durationDays.coerceAtLeast(1),
+                            tasks = parsedFromPost.tasks
+                        )
+                    } else {
+                        existingTemplate ?: com.example.plannerapp.data.template.PlanTemplateDto(
+                            title = currentPost.title.ifBlank { "Imported Plan" },
+                            description = currentPost.description,
+                            targetDurationDays = currentPost.durationDays.coerceAtLeast(1),
+                            defaultTaskDurationDays = 1,
+                            tags = currentPost.tags,
+                            category = currentPost.category,
+                            author = com.example.plannerapp.data.template.AuthorDto(
+                                userId = currentPost.author.userId,
+                                displayName = currentPost.author.displayName,
+                                avatarUrl = currentPost.author.avatarUrl,
+                                isCreator = currentPost.author.isCreator
+                            ),
+                            tasks = emptyList()
+                        )
+                    }
+                }
                 val activeUser = userDao.getActiveUserOnce()
                 val targetUserId = activeUser?.userId ?: 1L
 

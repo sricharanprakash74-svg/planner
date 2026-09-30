@@ -63,11 +63,13 @@ class CreatePlanViewModel(
                 val templatesWithCheckins = mutableMapOf<TaskTemplateEntity, List<DailyCheckinEntity>>()
                 val totalDays = java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate).toInt()
 
+                val planDuration = totalDays + 1
                 tasksInput.forEach { (taskDesc, selectedDays) ->
                     val template = TaskTemplateEntity(
                         planId = 0,
                         taskDescription = taskDesc,
-                        selectedDays = selectedDays.joinToString(",")
+                        selectedDays = selectedDays.joinToString(","),
+                        durationDays = planDuration
                     )
 
                     val checkins = mutableListOf<DailyCheckinEntity>()
@@ -102,6 +104,10 @@ class CreatePlanViewModel(
                         templates.forEach { tmpl ->
                             syncOutbox.enqueueTemplateUpsert(tmpl, null, cloudUid)
                         }
+                        val allCheckins = repository.getAllCheckinsForPlan(newPlanId).first()
+                        allCheckins.forEach { ci ->
+                            syncOutbox.enqueueCheckinUpsert(ci, null, cloudUid)
+                        }
                     }
                 }
 
@@ -122,7 +128,7 @@ class CreatePlanViewModel(
                         val templateDto = PlanTemplateDto(
                             title = name,
                             description = description,
-                            targetDurationDays = totalDays + 1,
+                            targetDurationDays = planDuration,
                             defaultTaskDurationDays = 1,
                             tags = effectiveTags,
                             category = category,
@@ -131,7 +137,7 @@ class CreatePlanViewModel(
                                 TaskTemplateDto(
                                     taskDescription = taskDesc,
                                     selectedDays = selectedDays.joinToString(","),
-                                    durationDays = 1,
+                                    durationDays = planDuration,
                                     subtasks = emptyList()
                                 )
                             }
@@ -141,10 +147,10 @@ class CreatePlanViewModel(
                             title = name,
                             description = description,
                             planTemplateJson = Gson().toJson(templateDto),
-                            durationDays = totalDays + 1,
+                            durationDays = planDuration,
                             tags = effectiveTags,
                             category = category,
-                            visibility = "public"
+                            visibility = "PUBLIC"
                         )
                         if (postResult.isSuccess) {
                             val post = postResult.getOrNull()
