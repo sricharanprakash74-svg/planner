@@ -1,6 +1,7 @@
 package com.example.plannerapp.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.ZoneId
@@ -280,6 +281,100 @@ class PlannerRepository(private val dao: PlannerDao) {
         }
     }
 
+    suspend fun getPlanById(planId: Long): PlanEntity? = dao.getPlanById(planId)
+
+    suspend fun insertDailyCheckins(checkins: List<DailyCheckinEntity>) = dao.insertDailyCheckins(checkins)
+
+    suspend fun repairMissingCheckinsForPlan(planId: Long) {
+        try {
+            val plan = dao.getPlanById(planId) ?: return
+            val templates = dao.getTemplatesForPlan(planId)
+            if (templates.isEmpty()) return
+
+            val start = try { LocalDate.parse(plan.startDate, dateFormatter) } catch (e: Exception) { return }
+            val end = try { LocalDate.parse(plan.endDate, dateFormatter) } catch (e: Exception) { start.plusDays(6) }
+            val planDaysCount = (java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1).coerceAtLeast(1).toInt()
+
+            val existingCheckins = getAllCheckinsForPlan(planId).first()
+            val checkinsByTemplate = existingCheckins.groupBy { it.templateId }
+
+            val newCheckins = mutableListOf<DailyCheckinEntity>()
+            val gson = com.google.gson.Gson()
+
+            templates.forEach { template ->
+                val templateCheckins = checkinsByTemplate[template.templateId] ?: emptyList()
+                val existingDates = templateCheckins.map { it.exactDate }.toSet()
+
+                val numSubtasks = try {
+                    val listType = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
+                    (gson.fromJson<List<String>>(template.subtasks, listType) ?: emptyList()).size
+                } catch (e: Exception) { 0 }
+                val defaultCompletedSubtasks = gson.toJson(List(numSubtasks) { false })
+
+                val taskDuration = template.durationDays.coerceAtLeast(1)
+                val activeDaysSet = template.selectedDays
+                    .split(",")
+                    .mapNotNull { it.trim().toIntOrNull() }
+                    .toSet()
+
+                val isFullDuration = taskDuration >= planDaysCount || taskDuration >= 7 || activeDaysSet.size >= 7 || activeDaysSet.isEmpty()
+                val isSingleDayBug = activeDaysSet.size == 1 && taskDuration > 1
+
+                for (offset in 0 until planDaysCount) {
+                    val date = start.plusDays(offset.toLong())
+                    val dateStr = date.format(dateFormatter)
+
+                    if (dateStr in existingDates) continue
+
+                    val shouldAdd = if (isFullDuration || isSingleDayBug) {
+                        offset < taskDuration
+                    } else if (activeDaysSet.size in 2..6) {
+                        activeDaysSet.contains(date.dayOfWeek.value)
+                    } else {
+                        activeDaysSet.contains(date.dayOfWeek.value)
+                    }
+
+                    if (shouldAdd) {
+                        newCheckins.add(
+                            DailyCheckinEntity(
+                                templateId = template.templateId,
+                                exactDate = dateStr,
+                                isCompleted = false,
+                                completedSubtasks = defaultCompletedSubtasks,
+                                syncStatus = "LOCAL"
+                            )
+                        )
+                    }
+                }
+
+                // If template has NO checkins at all, add for all days up to duration
+                if (templateCheckins.isEmpty() && newCheckins.none { it.templateId == template.templateId }) {
+                    for (offset in 0 until taskDuration.coerceAtMost(planDaysCount)) {
+                        val date = start.plusDays(offset.toLong())
+                        val dateStr = date.format(dateFormatter)
+                        if (dateStr !in existingDates) {
+                            newCheckins.add(
+                                DailyCheckinEntity(
+                                    templateId = template.templateId,
+                                    exactDate = dateStr,
+                                    isCompleted = false,
+                                    completedSubtasks = defaultCompletedSubtasks,
+                                    syncStatus = "LOCAL"
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (newCheckins.isNotEmpty()) {
+                dao.insertDailyCheckins(newCheckins)
+            }
+        } catch (e: Exception) {
+            // Graceful fallback
+        }
+    }
+
     suspend fun joinCommunityPlan(
         postId: String,
         template: com.example.plannerapp.data.template.PlanTemplateDto,
@@ -294,6 +389,7 @@ class PlannerRepository(private val dao: PlannerDao) {
             if (existing != null) {
                 val existingPlan = dao.getPlanById(existing.localPlanId)
                 if (existingPlan != null && existingPlan.userId == targetUserId) {
+                    repairMissingCheckinsForPlan(existingPlan.planId)
                     return Result.success(existing.localPlanId)
                 }
             }

@@ -86,20 +86,31 @@ class PlanImporter(
             val subtaskCount = taskDto.subtasks.size
             val defaultCompletedSubtasks = gson.toJson(List(subtaskCount) { false })
 
-            val taskTemplateEntity = TaskTemplateEntity(
-                planId = 0, // Will be assigned during transaction
-                taskDescription = taskDto.taskDescription,
-                selectedDays = taskDto.selectedDays.ifBlank { "1,2,3,4,5,6,7" },
-                durationDays = taskDto.durationDays.coerceAtLeast(1),
-                subtasks = subtasksJson,
-                syncStatus = "LOCAL"
-            )
+            val taskDuration = taskDto.durationDays.coerceAtLeast(1)
 
             // Parse active days of the week (1 = Monday, 7 = Sunday)
             val activeDaysSet = taskDto.selectedDays
                 .split(",")
                 .mapNotNull { it.trim().toIntOrNull() }
                 .toSet()
+
+            // A task spans the entire plan if duration matches plan or is >= 7, or if selectedDays has all days or was set to single day due to creation day bug
+            val isFullDuration = taskDuration >= durationDays || taskDuration >= 7 || activeDaysSet.size >= 7 || activeDaysSet.isEmpty()
+            val isSingleDayCreationBug = activeDaysSet.size == 1 && taskDuration > 1
+            val effectiveSelectedDays = if (isFullDuration || isSingleDayCreationBug) {
+                "1,2,3,4,5,6,7"
+            } else {
+                taskDto.selectedDays.ifBlank { "1,2,3,4,5,6,7" }
+            }
+
+            val taskTemplateEntity = TaskTemplateEntity(
+                planId = 0, // Will be assigned during transaction
+                taskDescription = taskDto.taskDescription,
+                selectedDays = effectiveSelectedDays,
+                durationDays = taskDuration,
+                subtasks = subtasksJson,
+                syncStatus = "LOCAL"
+            )
 
             val checkins = mutableListOf<DailyCheckinEntity>()
 
@@ -108,16 +119,43 @@ class PlanImporter(
                 val currentDate = startDate.plusDays(offset.toLong())
                 val dayOfWeekValue = currentDate.dayOfWeek.value // 1 (Mon) to 7 (Sun)
 
-                val shouldInclude = if (activeDaysSet.isEmpty()) {
-                    true
-                } else {
+                val shouldInclude = if (isFullDuration || isSingleDayCreationBug) {
+                    offset < taskDuration
+                } else if (activeDaysSet.size in 2..6) {
+                    // Explicit recurring days (e.g., Mon, Wed, Fri habit)
                     activeDaysSet.contains(dayOfWeekValue)
+                } else if (activeDaysSet.size == 1) {
+                    if (taskDto.startDayOffset > 0) {
+                        offset == taskDto.startDayOffset
+                    } else {
+                        // Check if day matches or if single-day task falls on this offset
+                        activeDaysSet.contains(dayOfWeekValue) || offset == 0
+                    }
+                } else {
+                    true
                 }
 
                 if (shouldInclude) {
                     checkins.add(
                         DailyCheckinEntity(
                             templateId = 0, // Assigned in transaction
+                            exactDate = currentDate.format(dateFormatter),
+                            isCompleted = false,
+                            completedSubtasks = defaultCompletedSubtasks,
+                            syncStatus = "LOCAL"
+                        )
+                    )
+                }
+            }
+
+            // GUARANTEE: Never leave a task with 0 checkins in the imported plan
+            if (checkins.isEmpty()) {
+                val safeCount = taskDuration.coerceAtMost(durationDays)
+                for (offset in 0 until safeCount) {
+                    val currentDate = startDate.plusDays(offset.toLong())
+                    checkins.add(
+                        DailyCheckinEntity(
+                            templateId = 0,
                             exactDate = currentDate.format(dateFormatter),
                             isCompleted = false,
                             completedSubtasks = defaultCompletedSubtasks,

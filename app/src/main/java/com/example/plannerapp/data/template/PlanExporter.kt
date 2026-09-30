@@ -49,10 +49,22 @@ class PlanExporter(
                 emptyList()
             }
 
+            val taskDuration = template.durationDays.coerceAtLeast(1)
+            val activeDaysSet = template.selectedDays
+                .split(",")
+                .mapNotNull { it.trim().toIntOrNull() }
+                .toSet()
+
+            val normalizedDays = if (taskDuration >= totalDays || taskDuration >= 7 || (activeDaysSet.size == 1 && taskDuration > 1) || activeDaysSet.isEmpty() || activeDaysSet.size >= 7) {
+                "1,2,3,4,5,6,7"
+            } else {
+                template.selectedDays.ifBlank { "1,2,3,4,5,6,7" }
+            }
+
             TaskTemplateDto(
                 taskDescription = template.taskDescription,
-                selectedDays = template.selectedDays.ifBlank { "1,2,3,4,5,6,7" },
-                durationDays = template.durationDays.coerceAtLeast(1),
+                selectedDays = normalizedDays,
+                durationDays = taskDuration,
                 subtasks = subtasksList,
                 startDayOffset = 0
             )

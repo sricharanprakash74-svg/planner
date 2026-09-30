@@ -73,6 +73,12 @@ class PlanDetailViewModel(
     val currentPlan: StateFlow<PlanEntity?> = repository.getPlan(planId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    init {
+        viewModelScope.launch {
+            repository.repairMissingCheckinsForPlan(planId)
+        }
+    }
+
     private val allPlanCheckins: Flow<List<DailyCheckinEntity>> = repository.getAllCheckinsForPlan(planId)
     private val allPlanCompletions: Flow<List<PlanDayCompletionEntity>> = repository.getPlanDayCompletions(planId)
 
@@ -339,10 +345,15 @@ class PlanDetailViewModel(
         viewModelScope.launch {
             try {
                 val date = _selectedDate.value
+                val activeDays = if (durationDays >= 7) {
+                    "1,2,3,4,5,6,7"
+                } else {
+                    (0 until durationDays).map { date.plusDays(it.toLong()).dayOfWeek.value }.distinct().sorted().joinToString(",")
+                }
                 val template = TaskTemplateEntity(
                     planId = planId,
                     taskDescription = taskDescription,
-                    selectedDays = date.dayOfWeek.value.toString(),
+                    selectedDays = activeDays,
                     durationDays = durationDays,
                     subtasks = gson.toJson(subtasks)
                 )

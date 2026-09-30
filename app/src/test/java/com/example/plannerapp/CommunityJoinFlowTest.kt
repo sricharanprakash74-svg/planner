@@ -176,6 +176,106 @@ class CommunityJoinFlowTest {
         assertTrue(fakeDao.joinedCommunities.isEmpty())
     }
 
+    @Test
+    fun joinCommunityPlan_generatesCheckinsForAllDays_evenWhenSelectedDaysIsSingleDay() = runTest {
+        val templateWithCurriculum = PlanTemplateDto(
+            title = "exam preparation",
+            description = "Study routine",
+            targetDurationDays = 7,
+            defaultTaskDurationDays = 1,
+            author = AuthorDto("usr1", "sricharan"),
+            tasks = listOf(
+                TaskTemplateDto(
+                    taskDescription = "maths",
+                    selectedDays = "2", // Previous bug set this to single day
+                    durationDays = 7,
+                    subtasks = listOf("exercise 1")
+                ),
+                TaskTemplateDto(
+                    taskDescription = "chemistry",
+                    selectedDays = "2",
+                    durationDays = 7,
+                    subtasks = listOf("problem")
+                ),
+                TaskTemplateDto(
+                    taskDescription = "physics",
+                    selectedDays = "2",
+                    durationDays = 7,
+                    subtasks = listOf("problem")
+                )
+            )
+        )
+
+        val result = plannerRepository.joinCommunityPlan(
+            postId = "post_exam_prep",
+            template = templateWithCurriculum,
+            targetUserId = 100L,
+            startDate = LocalDate.of(2026, 9, 30),
+            socialRepository = socialRepository
+        )
+
+        assertTrue(result.isSuccess)
+        val planId = result.getOrThrow()
+
+        val checkins = fakeDao.checkins.filter { c ->
+            fakeDao.taskTemplates.any { t -> t.templateId == c.templateId && t.planId == planId }
+        }
+
+        // Each of the 3 tasks should have checkins for all 7 days (total 21 checkins)
+        assertEquals(21, checkins.size)
+
+        // Specifically check that Sunday Oct 4 has tasks!
+        val oct4Checkins = checkins.filter { it.exactDate == "2026-10-04" }
+        assertEquals(3, oct4Checkins.size)
+    }
+
+    @Test
+    fun repairMissingCheckins_populatesMissingDaysForExistingPlan() = runTest {
+        // Simulate a broken existing plan with only 1 checkin for a 7-day task
+        val planId = fakeDao.insertPlan(
+            PlanEntity(
+                heading = "exam preparation",
+                description = "",
+                startDate = "2026-09-30",
+                endDate = "2026-10-06",
+                userId = 100L
+            )
+        )
+
+        val templateId = fakeDao.insertTaskTemplate(
+            TaskTemplateEntity(
+                planId = planId,
+                taskDescription = "maths",
+                selectedDays = "2",
+                durationDays = 7,
+                subtasks = "[\"exercise 1\"]"
+            )
+        )
+
+        // Only 1 checkin on Oct 6 (Tuesday)
+        fakeDao.insertDailyCheckins(
+            listOf(
+                DailyCheckinEntity(
+                    templateId = templateId,
+                    exactDate = "2026-10-06",
+                    isCompleted = false
+                )
+            )
+        )
+
+        assertEquals(1, fakeDao.checkins.size)
+
+        // Run self-healing repair
+        plannerRepository.repairMissingCheckinsForPlan(planId)
+
+        // All 7 days must now have checkins
+        val allCheckins = fakeDao.checkins.filter { it.templateId == templateId }
+        assertEquals(7, allCheckins.size)
+
+        // Verify Oct 4 (Sunday) is present
+        assertTrue(allCheckins.any { it.exactDate == "2026-10-04" })
+    }
+
     private class FakePlannerDao : PlannerDao {
         val plans = mutableListOf<PlanEntity>()
         val taskTemplates = mutableListOf<TaskTemplateEntity>()
@@ -256,7 +356,10 @@ class CommunityJoinFlowTest {
         override suspend fun updateCheckinAndSubtasksStatus(checkinId: Long, isCompleted: Boolean, completedSubtasks: String, completedAt: Long?, timezoneOffset: String) {}
         override suspend fun getPastCheckins(userId: Long, currentDate: String): List<DailyCheckinEntity> = emptyList()
         override fun getCheckinsBetweenDates(userId: Long, startDate: String, endDate: String): Flow<List<DailyCheckinEntity>> = flowOf(emptyList())
-        override fun getAllCheckinsForPlan(planId: Long): Flow<List<DailyCheckinEntity>> = flowOf(emptyList())
+        override fun getAllCheckinsForPlan(planId: Long): Flow<List<DailyCheckinEntity>> {
+            val templateIds = taskTemplates.filter { it.planId == planId }.map { it.templateId }.toSet()
+            return flowOf(checkins.filter { it.templateId in templateIds })
+        }
         override suspend fun insertDayCompletion(completion: PlanDayCompletionEntity) {}
         override fun getPlanDayCompletions(planId: Long): Flow<List<PlanDayCompletionEntity>> = flowOf(emptyList())
         override fun getDayCompletion(planId: Long, exactDate: String): Flow<PlanDayCompletionEntity?> = flowOf(null)
